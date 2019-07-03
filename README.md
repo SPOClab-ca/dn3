@@ -1,2 +1,2 @@
-# pytorch-mne
-Bridge for training pytorch neural-network models with neuroscientific data managed using MNE.
+# DNPT - The Deep neurophysiology toolbox
+Bridge for training deep neural-network models with neuroscientific data managed using MNE.
