@@ -20,18 +20,23 @@ class EpochsDataLoader:
                  num_parallel_calls=tf.data.experimental.AUTOTUNE, **kwargs):
         self.epochs = mne.Epochs(raw, events, tmin=tmin, tmax=tmin + tlen - 1 / raw.info['sfreq'])
         self._dataset = tf.data.Dataset.from_tensor_slices(
-            (tf.range(len(self.epochs.events), self.epochs.events[:, -1]))
+            (tf.range(len(self.epochs.events)), self.epochs.events[:, -1])
         )
         self._dataset = self._dataset.map(
             lambda filename, label: tuple(tf.py_function(
                 lambda ind, lab: self._retrieve_epoch(ind, lab), [filename, label], [tf.float32, tf.uint16])),
             num_parallel_calls=num_parallel_calls)
-        self._dataset = self._dataset.map(normalizer, num_parallel_calls=num_parallel_calls)
+
+        self._dataset = self._dataset.map(
+            lambda data, label : tuple((normalizer(data), label)), num_parallel_calls=num_parallel_calls)
+        iter = self._dataset.__iter__()
+        x, y = iter.next()
+        print(x, y)
         self._train_dataset = self._dataset
         self.transforms = [normalizer]
 
     def _retrieve_epoch(self, run, label):
-        return self.epochs[run].get_data().astype('float32'), tf.cast(label, tf.uint16)
+        return self.epochs.get_data()[run].astype('float32'), tf.cast(label, tf.uint16)
 
     def train_dataset(self):
         return self._train_dataset
