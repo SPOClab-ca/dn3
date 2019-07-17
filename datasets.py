@@ -16,22 +16,19 @@ class EpochsDataLoader:
     The normalizer should be tf operations only, if not, see tf.py_function to wrap arbitrary logic.
     """
 
-    def __init__(self, raw: mne.io.Raw, events, tmin: float, tlen: float, normalizer=zscore,
+    def __init__(self, raw: mne.io.Raw, events, tmin: float, tlen: float, baseline=(None, 0), normalizer=zscore,
                  num_parallel_calls=tf.data.experimental.AUTOTUNE, **kwargs):
-        self.epochs = mne.Epochs(raw, events, tmin=tmin, tmax=tmin + tlen - 1 / raw.info['sfreq'])
+        self.epochs = mne.Epochs(raw, events, tmin=tmin, tmax=tmin + tlen - 1 / raw.info['sfreq'], baseline=baseline)
         self._dataset = tf.data.Dataset.from_tensor_slices(
             (tf.range(len(self.epochs.events)), self.epochs.events[:, -1])
         )
         self._dataset = self._dataset.map(
-            lambda filename, label: tuple(tf.py_function(
-                lambda ind, lab: self._retrieve_epoch(ind, lab), [filename, label], [tf.float32, tf.uint16])),
+            lambda index, label: tuple(tf.py_function(
+                lambda ind, lab: self._retrieve_epoch(ind, lab), [index, label], [tf.float32, tf.uint16])),
             num_parallel_calls=num_parallel_calls)
 
         self._dataset = self._dataset.map(
             lambda data, label : tuple((normalizer(data), label)), num_parallel_calls=num_parallel_calls)
-        iter = self._dataset.__iter__()
-        x, y = iter.next()
-        print(x, y)
         self._train_dataset = self._dataset
         self.transforms = [normalizer]
 
@@ -48,9 +45,12 @@ class EpochsDataLoader:
         assert apply_train or apply_eval
         self.transforms.append(map_fn)
         if apply_train:
-            self._train_dataset.map(map_fn)
+            print('here')
+            self._train_dataset = self._train_dataset.map(
+                lambda data, label: tuple((map_fn(data), label)))
+
         if apply_eval:
-            self._dataset.map(map_fn)
+            self._dataset = self._dataset.map(lambda data, label: tuple((map_fn(data), label)))
 
 
 def multi_subject(*datasets):

@@ -15,3 +15,8 @@ class ChannelShuffle(BaseTransform):
     def __call__(self, x: tf.Tensor, *args, **kwargs):
         pass
 
+
+class DummyTransform(BaseTransform):
+
+    def __call__(self, x: tf.Tensor, *args, **kwargs):
+        return tf.multiply(x, 2)
