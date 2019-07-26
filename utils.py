@@ -1,4 +1,5 @@
 import tensorflow as tf
+import mne
 
 
 def zscore(data, axis=-1):
@@ -7,3 +8,42 @@ def zscore(data, axis=-1):
         tf.math.reduce_std(data, axis=axis, keepdims=True)
     )
 
+
+class Preprocessing:
+    """
+        This is the class for operations which are passed into EpochsDataLoader to perform preprocessing on
+        mne.Epoches.
+     """
+    def __call__(self, data: mne.epochs, *args, **kwargs):
+        raise NotImplementedError()
+
+
+class ICAPreprocessor(Preprocessing):
+
+    def __init__(self, n_components=None, method='fastica'):
+        self.data = None
+        self.components = None
+        self.ica = mne.preprocessing.ICA(n_components=n_components, method=method)
+
+    def __call__(self, data: mne.epochs, *args, **kwargs):
+        self.data = data
+        self.ica = self.ica.fit(data)
+        self.components = self.ica.get_components()
+
+    def get_components(self):
+        return self.components
+
+    def get_transform(self):
+        ica_data = self.ica.get_sources(self.data)
+        return ica_data
+
+
+def get_dummyModelToFit(input_size, output_size):
+    model = tf.keras.Sequential([
+        tf.keras.layers.Dense(64, activation=tf.nn.relu, input_shape=input_size),
+        tf.keras.layers.Dense(64, activation=tf.nn.relu),
+        tf.keras.layers.Dense(output_size, activation=tf.nn.softmax)
+    ])
+    model.compile(optimizer='adam',
+                  loss=tf.keras.losses.categorical_crossentropy, metrics=['accuracy'])
+    return model
