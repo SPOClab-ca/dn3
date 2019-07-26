@@ -4,6 +4,7 @@ import numpy as np
 from mne.datasets import sample
 from datasets import *
 from transforms import *
+from pmodel import *
 import unittest
 
 
@@ -40,8 +41,20 @@ class TestEpochLoader(unittest.TestCase):
                 transform = zscore(tensor).numpy()
                 self.assertEqual(np.any(x - transform), False)
 
-    def test_ZscoreFunction(self):
+    def test_evaluateDataAfterZscore(self):
         loader = EpochsDataLoader(self.raw, self.events, -0.002, 0.005, baseline=None)
+        # test the first 3 iterations
+        dataset = loader.eval_dataset()
+        it = iter(dataset)
+        for i in range(3):
+            with self.subTest(i=i):
+                x, y = next(it)
+                # print(x.numpy())
+                tensor = tf.cast(tf.constant(loader.epochs.get_data()[i]), tf.float32)
+                transform = zscore(tensor).numpy()
+                self.assertEqual(np.any(x - transform), False)
+
+    def test_ZscoreFunction(self):
         dummy = np.array([[1.0, 2.0, 3.0], [1., 1., 2.]])
         result = np.around((dummy - np.mean(dummy, axis=-1, dtype='float32', keepdims=True)) / \
                  np.std(dummy, axis=-1, dtype='float32', keepdims=True), decimals=5)
@@ -54,6 +67,20 @@ class TestEpochLoader(unittest.TestCase):
         dummy_transform = DummyTransform()
         loader.add_transform(dummy_transform, apply_train=True, apply_eval=False)
         dataset = loader.train_dataset()
+        it = iter(dataset)
+        # test the first 3 iterations
+        for i in range(3):
+            with self.subTest(i=i):
+                x, y = next(it)
+                tensor = tf.cast(tf.constant(loader.epochs.get_data()[i]), tf.float32)
+                transform = dummy_transform(zscore(tensor))
+                self.assertEqual(np.any(x - transform), False)
+
+    def test_addTransformForEvaluateData(self):
+        loader = EpochsDataLoader(self.raw, self.events, -0.002, 0.005, baseline=None)
+        dummy_transform = DummyTransform()
+        loader.add_transform(dummy_transform, apply_train=False, apply_eval=True)
+        dataset = loader.eval_dataset()
         it = iter(dataset)
         # test the first 3 iterations
         for i in range(3):
@@ -98,7 +125,7 @@ class TestEpochLoader(unittest.TestCase):
         final_ds = final_ds.shuffle(buffer_size=40).batch(10).repeat(3)
         input_shape = (500, )
         output_shape = 2
-        model = get_dummyModelToFit(input_shape, output_shape)
+        model = get_dummy_model_tofit(input_shape, output_shape)
         model.fit(final_ds, epochs=2)
         test_x_positive = np.random.uniform(0, 5, (50, 1, 500)).astype('float')
         test_x_nagative = - np.random.uniform(0, 5, (50, 1, 500)).astype('float')

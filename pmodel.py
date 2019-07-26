@@ -27,3 +27,14 @@ class Pmodel(tf.keras.models.Model):
 
     def compute_output_signature(self, input_signature):
         pass
+
+
+def get_dummy_model_tofit(input_size, output_size):
+    model = tf.keras.Sequential([
+        tf.keras.layers.Dense(64, activation=tf.nn.relu, input_shape=input_size),
+        tf.keras.layers.Dense(64, activation=tf.nn.relu),
+        tf.keras.layers.Dense(output_size, activation=tf.nn.softmax)
+    ])
+    model.compile(optimizer='adam',
+                  loss=tf.keras.losses.categorical_crossentropy, metrics=['accuracy'])
+    return model
