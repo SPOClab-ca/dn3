@@ -137,29 +137,29 @@ class TestEpochLoader(unittest.TestCase):
                 count += 1
         self.assertEqual(count, 100)
 
-    def test_ICApreprocessingReturnShape(self):
-        data = np.random.uniform(0, 5, (100, 10000)).astype('float')
-        ch_names = [str(s) for s in range(100)]
-        info = mne.create_info(ch_names=ch_names, sfreq=1000, ch_types='mag')
-        raw = mne.io.RawArray(data, info)
-        events = np.array([[400 * (i + 1), 0, 1] for i in range(20)])
-        epochs = mne.Epochs(raw, events, tmin=-0.050, tmax=0.049, baseline=None)
-        ica = ICAPreprocessor(n_components=3)
-        ica(epochs)
-        shape = ica.get_transform().get_data().shape
-        self.assertEqual(shape, (20, 3, 100))
-
-    def test_ICApreprocessShapeInEpochloader(self):
-        data = np.random.uniform(0, 5, (100, 10000)).astype('float')
-        ch_names = [str(s) for s in range(100)]
-        info = mne.create_info(ch_names=ch_names, sfreq=1000, ch_types='mag')
-        raw = mne.io.RawArray(data, info)
-        events = np.array([[400 * (i + 1), 0, 1] for i in range(20)])
-        ica = ICAPreprocessor(n_components=3)
-        loader = EpochsDataLoader(raw, events, -0.025, 0.100, baseline=None, preprocessing=ica)
-        dataset = loader.train_dataset()
-        x, y = next(dataset.__iter__())
-        self.assertEqual(x.numpy().shape, (3, 100))
+    # def test_ICApreprocessingReturnShape(self):
+    #     data = np.random.uniform(0, 5, (100, 10000)).astype('float')
+    #     ch_names = [str(s) for s in range(100)]
+    #     info = mne.create_info(ch_names=ch_names, sfreq=1000, ch_types='mag')
+    #     raw = mne.io.RawArray(data, info)
+    #     events = np.array([[400 * (i + 1), 0, 1] for i in range(20)])
+    #     epochs = mne.Epochs(raw, events, tmin=-0.050, tmax=0.049, baseline=None)
+    #     ica = ICAPreprocessor(n_components=3)
+    #     ica(epochs)
+    #     shape = ica.get_transform().get_data().shape
+    #     self.assertEqual(shape, (20, 3, 100))
+    #
+    # def test_ICApreprocessShapeInEpochloader(self):
+    #     data = np.random.uniform(0, 5, (100, 10000)).astype('float')
+    #     ch_names = [str(s) for s in range(100)]
+    #     info = mne.create_info(ch_names=ch_names, sfreq=1000, ch_types='mag')
+    #     raw = mne.io.RawArray(data, info)
+    #     events = np.array([[400 * (i + 1), 0, 1] for i in range(20)])
+    #     ica = ICAPreprocessor(n_components=3)
+    #     loader = EpochsDataLoader(raw, events, -0.025, 0.100, baseline=None, preprocessing=ica)
+    #     dataset = loader.train_dataset()
+    #     x, y = next(dataset.__iter__())
+    #     self.assertEqual(x.numpy().shape, (3, 100))
 
 if __name__ == '__main__':
     unittest.main()

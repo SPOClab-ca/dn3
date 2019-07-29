@@ -16,19 +16,24 @@ class EpochsDataLoader:
     The normalizer should be tf operations only, if not, see tf.py_function to wrap arbitrary logic.
     """
 
-    def __init__(self, raw: mne.io.Raw, events, tmin: float, tlen: float, baseline=(None, 0), preprocessing=None,
+    def __init__(self, raw: mne.io.Raw, events, tmin: float, tlen: float, baseline=(None, 0), preprocessings=None,
                  normalizer=zscore, num_parallel_calls=tf.data.experimental.AUTOTUNE, **kwargs):
         self.epochs = mne.Epochs(raw, events, tmin=tmin, tmax=tmin + tlen - 1 / raw.info['sfreq'], baseline=baseline)
-        # preprocessing if necessary
-        if preprocessing:
-            preprocessing(self.epochs)
-            self.epochs = preprocessing.get_transform()
+
         self._dataset = tf.data.Dataset.from_tensor_slices(
             (tf.range(len(self.epochs.events)), self.epochs.events[:, -1]))
         self._dataset = self._dataset.map(
             lambda index, label: tuple(tf.py_function(
                 lambda ind, lab: self._retrieve_epoch(ind, lab), [index, label], [tf.float32, tf.uint16])),
             num_parallel_calls=num_parallel_calls)
+        self.transforms_in_queue = []
+        # preprocessing if necessary
+        if preprocessings:
+            for preprocessing in preprocessings:
+                preprocessing(self.epochs)
+                transform = preprocessing.get_transform()
+                # to later apply to tf.data.dataset optionally
+                self.transforms_in_queue.append(transform)
         self._dataset = self._dataset.map(
             lambda data, label : tuple((normalizer(data), label)), num_parallel_calls=num_parallel_calls)
         self._train_dataset = self._dataset

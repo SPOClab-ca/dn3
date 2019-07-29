@@ -1,5 +1,7 @@
 import tensorflow as tf
 import mne
+import numpy as np
+from transforms import *
 
 
 def zscore(data, axis=-1):
@@ -15,6 +17,9 @@ class Preprocessing:
         mne.Epoches.
      """
     def __call__(self, data: mne.epochs, *args, **kwargs):
+        raise NotImplementedError()
+
+    def get_transform(self):
         raise NotImplementedError()
 
 
@@ -34,8 +39,8 @@ class ICAPreprocessor(Preprocessing):
         return self.components
 
     def get_transform(self):
-        ica_data = self.ica.get_sources(self.data)
-        return ica_data
+        transform = ICATransform(self.components.T)
+        return transform
 
 
 
