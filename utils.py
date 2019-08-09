@@ -15,7 +15,7 @@ class Preprocessing:
     """
         This is the class for operations which are passed into EpochsDataLoader to perform preprocessing on
         mne.Epoches.
-     """
+    """
     def __call__(self, data: mne.epochs, *args, **kwargs):
         raise NotImplementedError()
 
@@ -41,6 +41,27 @@ class ICAPreprocessor(Preprocessing):
     def get_transform(self):
         transform = ICATransform(self.components.T)
         return transform
+
+
+class EApreprocessor(Preprocessing):
+    """
+    EEG DATA ALIGNMENT IN THE EUCLIDEAN SPACE
+    """
+    def __init__(self):
+        self.reference_matrix = 0
+
+    def __call__(self, epochs: mne.epochs, *args, **kwargs):
+        data = epochs.get_data()
+        for epoch in data:
+            self.reference_matrix += np.matmul(epoch, epoch.T)
+        self.reference_matrix = self.reference_matrix / len(data)
+        self.reference_matrix = np.linalg.inv(np.sqrt(self.reference_matrix))
+
+    def get_transform(self):
+        transform = EATransform(self.reference_matrix)
+        return transform
+
+
 
 
 

@@ -48,6 +48,9 @@ class EpochsDataLoader:
     def eval_dataset(self):
         return self._dataset
 
+    def get_transform_in_queue(self):
+        return self.transforms_in_queue
+
     def add_transform(self, map_fn, apply_train=True, apply_eval=False):
         assert apply_train or apply_eval
         self.transforms.append(map_fn)

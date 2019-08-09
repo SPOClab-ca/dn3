@@ -29,3 +29,12 @@ class ICATransform(BaseTransform):
 
     def __call__(self, x: tf.Tensor, *args, **kwargs):
         return tf.linalg.matmul(tf.cast(self.input, tf.float32), x)
+
+
+class EATransform(BaseTransform):
+
+    def __init__(self, ref_matrix):
+        self.ref_matrix = ref_matrix
+
+    def __call__(self, x: tf.Tensor, *args, **kwargs):
+        return tf.linalg.matmul(tf.cast(self.ref_matrix, tf.float32), x)
