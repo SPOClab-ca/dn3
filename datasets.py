@@ -35,7 +35,7 @@ class EpochsDataLoader:
                 # to later apply to tf.data.dataset optionally
                 self.transforms_in_queue.append(transform)
         self._dataset = self._dataset.map(
-            lambda data, label : tuple((normalizer(data), label)), num_parallel_calls=num_parallel_calls)
+            lambda data, label: tuple((normalizer(data), label)), num_parallel_calls=num_parallel_calls)
         self._train_dataset = self._dataset
         self.transforms = [normalizer]
 
@@ -61,10 +61,11 @@ class EpochsDataLoader:
             self._dataset = self._dataset.map(lambda data, label: tuple((map_fn(data), label)))
 
 
-def multi_subject(*datasets):
+def labelled_concat(*datasets):
     """
     Concatenates all the datasets provided into one Dataset with an additional label corresponding to its original
-    source dataset e.g. which subject. So if the datasets were previously (x_i, label_i) for all i, they now load (x_i,
+    source dataset. Can be used for multi-subject and multi-run datasets, providing concatenation with identification.
+    For example: datasets by subject. If the datasets were previously (x_i, label_i) for all i, they now load (x_i,
     label_i, subject_j) for all J subjects with I epochs each.
     :param datasets:
     :return: concatenated datasets;
@@ -73,7 +74,7 @@ def multi_subject(*datasets):
     for i, ds in enumerate(datasets):
         assert isinstance(ds, tf.data.Dataset)
         new_datasets.append(ds.map(
-            lambda x, y: (x, y, tf.constant(i)), num_parallel_calls=tf.data.experimental.AUTOTUNE))
+            lambda *x: (*x, tf.constant(i)), num_parallel_calls=tf.data.experimental.AUTOTUNE))
     for ds in new_datasets[1:]:
         new_datasets[0] = new_datasets[0].concatenate(ds)
     return new_datasets[0]

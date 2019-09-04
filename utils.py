@@ -11,56 +11,6 @@ def zscore(data, axis=-1):
     )
 
 
-class Preprocessing:
-    """
-        This is the class for operations which are passed into EpochsDataLoader to perform preprocessing on
-        mne.Epoches.
-    """
-    def __call__(self, data: mne.epochs, *args, **kwargs):
-        raise NotImplementedError()
-
-    def get_transform(self):
-        raise NotImplementedError()
-
-
-class ICAPreprocessor(Preprocessing):
-
-    def __init__(self, n_components=None, method='fastica'):
-        self.data = None
-        self.components = None
-        self.ica = mne.preprocessing.ICA(n_components=n_components, method=method)
-
-    def __call__(self, data: mne.epochs, *args, **kwargs):
-        self.data = data
-        self.ica = self.ica.fit(data)
-        self.components = self.ica.get_components()
-
-    def get_components(self):
-        return self.components
-
-    def get_transform(self):
-        transform = ICATransform(self.components.T)
-        return transform
-
-
-class EApreprocessor(Preprocessing):
-    """
-    EEG DATA ALIGNMENT IN THE EUCLIDEAN SPACE
-    """
-    def __init__(self):
-        self.reference_matrix = 0
-
-    def __call__(self, epochs: mne.epochs, *args, **kwargs):
-        data = epochs.get_data()
-        for epoch in data:
-            self.reference_matrix += np.matmul(epoch, epoch.T)
-        self.reference_matrix = self.reference_matrix / len(data)
-        self.reference_matrix = np.linalg.inv(np.sqrt(self.reference_matrix))
-
-    def get_transform(self):
-        transform = EATransform(self.reference_matrix)
-        return transform
-
 
 
 

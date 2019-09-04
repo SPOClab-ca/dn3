@@ -1,5 +1,5 @@
-import keras
-import keras.backend as K
+import tensorflow.python.keras as keras
+import tensorflow as tf
 
 
 class ExpandLayer(keras.layers.Layer):
@@ -17,7 +17,7 @@ class ExpandLayer(keras.layers.Layer):
         return tuple(input_shape)
 
     def call(self, inputs, **kwargs):
-        return K.expand_dims(inputs, axis=self.axis)
+        return tf.expand_dims(inputs, axis=self.axis)
 
     def get_config(self):
         return dict(axis=self.axis)
@@ -37,7 +37,16 @@ class SqueezeLayer(ExpandLayer):
         return tuple(input_shape)
 
     def call(self, inputs, **kwargs):
-        return K.squeeze(inputs, axis=self.axis)
+        return tf.squeeze(inputs, axis=self.axis)
+
+
+# need these for ShallowConvNet
+def square(x):
+    return tf.square(x)
+
+
+def log(x):
+    return tf.log(tf.clip(x, min_value=1e-7, max_value=10000))
 
 
 class AttentionLSTMIn(keras.layers.LSTM):
@@ -104,27 +113,27 @@ class AttentionLSTMIn(keras.layers.LSTM):
         h_tm1 = states[0]
 
         if self.style is self.ATT_STYLES[0]:
-            energy = K.concatenate((inputs, h_tm1))
+            energy = tf.concatenate((inputs, h_tm1))
         elif self.style is self.ATT_STYLES[1]:
-            h_tm1 = K.repeat_elements(K.expand_dims(h_tm1), self.channels, -1)
-            energy = K.concatenate((self.input_tensor_hack, h_tm1), 1)
-            energy = K.permute_dimensions(energy, (0, 2, 1))
+            h_tm1 = tf.repeat_elements(tf.expand_dims(h_tm1), self.channels, -1)
+            energy = tf.concatenate((self.input_tensor_hack, h_tm1), 1)
+            energy = tf.permute_dimensions(energy, (0, 2, 1))
         else:
             raise NotImplementedError('{0}: not implemented'.format(self.style))
 
         for i, kernel in enumerate(self.attention_kernels):
-            energy = K.dot(energy, kernel)
+            energy = tf.dot(energy, kernel)
             if self.use_bias:
-                energy = K.bias_add(energy, self.attention_bias[i])
+                energy = tf.bias_add(energy, self.attention_bias[i])
             energy = self.activation(energy)
 
-        alpha = K.softmax(energy)
+        alpha = tf.softmax(energy)
 
         if self.style is self.ATT_STYLES[0]:
             inputs = inputs * alpha
         elif self.style is self.ATT_STYLES[1]:
-            alpha = K.permute_dimensions(alpha, (0, 2, 1))
+            alpha = tf.permute_dimensions(alpha, (0, 2, 1))
             weighted = self.input_tensor_hack * alpha
-            inputs = K.sum(weighted, 1)
+            inputs = tf.sum(weighted, 1)
 
         return super(AttentionLSTMIn, self).step(inputs, states)

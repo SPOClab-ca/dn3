@@ -4,7 +4,7 @@ import numpy as np
 from mne.datasets import sample
 from datasets import *
 from transforms import *
-from pmodel import *
+from models import *
 import unittest
 
 
@@ -95,7 +95,7 @@ class TestEpochLoader(unittest.TestCase):
         ds_1 = loader.train_dataset()
         # create a new dataset
         ds_2 = ds_1.map(lambda x, y: tuple((tf.subtract(x, 2), y-1)))
-        test = multi_subject(ds_1, ds_2).__iter__()
+        test = labelled_concat(ds_1, ds_2).__iter__()
         result = ds_1.map(
             lambda x, y: (x, y, tf.constant(0))).concatenate(
             ds_2.map(lambda data, label: (data, label, tf.constant(1)))).__iter__()
