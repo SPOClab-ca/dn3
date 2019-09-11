@@ -1,7 +1,9 @@
+from abc import ABC
+
 import tensorflow as tf
 
 
-class Pmodel(tf.keras.models.Model):
+class MetaModel(tf.keras.models.Model, ABC):
 
     def fit(self,
           x=None,
@@ -23,7 +25,4 @@ class Pmodel(tf.keras.models.Model):
           workers=1,
           use_multiprocessing=False,
           **kwargs):
-        pass
-
-    def compute_output_signature(self, input_signature):
         pass

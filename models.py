@@ -314,3 +314,33 @@ def ShallowConvNet(nb_classes, Chans=64, Samples=128, dropoutRate=0.5):
     softmax = Activation('softmax')(dense)
 
     return Model(inputs=input_main, outputs=softmax)
+
+
+def DenseTCNN(samples_t, channels, targets=4, t_growth=20, do=0.3, subjects=1, temp_layers=(6, 12, 24, 16),
+              compress_theta=0.9, num_init_features=40, bn_size=4, data_format='channels_first'):
+    if isinstance(temp_layers, int):
+       temp_layers = 3 * [temp_layers]
+
+    ins = InputLayer((channels, samples_t))
+
+    # First convolution
+    cnn1 = Conv1D(num_init_features, kernel_size=2, strides=1, padding=1, use_bias=False, name="conv0",
+                  data_format=data_format)(ins)
+    cnn1 = BatchNormalization(axis=1, name='norm0')(cnn1)
+    cnn1 = ReLU(name='relu0')(cnn1)
+    d_in = MaxPool1D(3, strides=2, data_format=data_format)(cnn1)
+
+    for num_layers in temp_layers[:-1]:
+        d_in = dense_block_1d(d_in, num_layers, bn_size, growth_rate=t_growth, drop_rate=do,
+                              data_format=data_format)(d_in)
+        num_init_features = int(compress_theta * num_init_features)
+        d_in = transition(d_in, num_init_features)
+
+    classifier = BatchNormalization(axis=1 if data_format == 'channel_first' else -1, name='features')(d_in)
+    classifier = GlobalAveragePooling1D()(classifier)
+    classifier = Dense(targets, activation='softmax')(classifier)
+
+    return Model(inputs=ins, outputs=classifier)
+
+
+

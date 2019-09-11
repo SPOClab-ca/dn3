@@ -1,8 +1,4 @@
-import mne
-import tensorflow as tf
-import numpy as np
-from mne.datasets import sample
-from datasets import *
+from dataloaders import *
 from transforms import *
 from models import *
 import unittest

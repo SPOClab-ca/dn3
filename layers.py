@@ -1,4 +1,5 @@
 import tensorflow.python.keras as keras
+from tensorflow.python.keras.layers import *
 import tensorflow as tf
 
 
@@ -8,13 +9,13 @@ class ExpandLayer(keras.layers.Layer):
         self.axis = axis
         super(ExpandLayer, self).__init__(**kwargs)
 
-    def compute_output_shape(self, input_shape):
+    def compute_output_signature(self, input_signature):
         ax = self.axis
-        input_shape = list(input_shape)
+        input_signature = list(input_signature)
         if ax < 0:
-            ax = len(input_shape) + ax
-        input_shape.insert(ax+1, 1)
-        return tuple(input_shape)
+            ax = len(input_signature) + ax
+        input_signature.insert(ax + 1, 1)
+        return tuple(input_signature)
 
     def call(self, inputs, **kwargs):
         return tf.expand_dims(inputs, axis=self.axis)
@@ -25,16 +26,16 @@ class ExpandLayer(keras.layers.Layer):
 
 class SqueezeLayer(ExpandLayer):
 
-    def compute_output_shape(self, input_shape):
+    def compute_output_signature(self, input_signature):
         ax = self.axis
-        input_shape = list(input_shape)
+        input_signature = list(input_signature)
         if ax < 0:
-            ax = len(input_shape) + ax
-        if input_shape[ax] == 1:
-            input_shape.pop(ax)
+            ax = len(input_signature) + ax
+        if input_signature[ax] == 1:
+            input_signature.pop(ax)
         else:
             raise ValueError('Dimension ', ax, 'is not equal to 1!')
-        return tuple(input_shape)
+        return tuple(input_signature)
 
     def call(self, inputs, **kwargs):
         return tf.squeeze(inputs, axis=self.axis)
@@ -137,3 +138,38 @@ class AttentionLSTMIn(keras.layers.LSTM):
             inputs = tf.sum(weighted, 1)
 
         return super(AttentionLSTMIn, self).step(inputs, states)
+
+
+# The dense layers mostly a simple modification of the torchvision
+def dense_layer_1d(in_tensor, growth_rate, bn_size, drop_rate, data_format='channels_first', activation=ReLU):
+       in_tensor = BatchNormalization(axis=1 if data_format == 'channels_first' else -1)(in_tensor)
+       in_tensor = activation()(in_tensor)
+       in_tensor = Conv1D(bn_size * growth_rate, kernel_size=1, strides=1, use_bias=False, data_format=data_format)(
+           in_tensor
+       )
+
+       in_tensor = BatchNormalization(axis=1 if data_format == 'channels_first' else -1)(in_tensor)
+       in_tensor = activation()(in_tensor)
+       in_tensor = Conv1D(growth_rate, kernel_size=1, strides=1, use_bias=False, data_format=data_format)(in_tensor)
+       in_tensor = SpatialDropout1D(rate=drop_rate)(in_tensor)
+
+       return in_tensor
+
+
+def dense_block_1d(in_tensor, num_layers, bn_size, growth_rate, drop_rate=0.5,
+                   data_format='channels_first', activation=ReLU):
+    for i in range(num_layers):
+        out = dense_layer_1d(in_tensor, growth_rate, bn_size, drop_rate, data_format=data_format,
+                             activation=activation)(in_tensor)
+        in_tensor = Concatenate(axis=1)([in_tensor, out])
+    return in_tensor
+
+
+def transition(in_tensor, num_output_features, pool=2, activation=ReLU, data_format='channels_first'):
+    in_tensor = BatchNormalization(axis=1 if data_format == 'channels_first' else -1)(in_tensor)
+    in_tensor = activation()(in_tensor)
+    in_tensor = Conv1D(num_output_features, kernel_size=1, strides=1, use_bias=False, data_format=data_format)(
+        in_tensor
+    )
+    in_tensor = AveragePooling1D(pool, strides=pool)(in_tensor)
+    return in_tensor
