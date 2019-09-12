@@ -1,7 +1,10 @@
 from dataloaders import *
 from transforms import *
 from models import *
+
 import unittest
+import mne
+import numpy as np
 
 
 class TestEpochLoader(unittest.TestCase):
@@ -91,7 +94,7 @@ class TestEpochLoader(unittest.TestCase):
         ds_1 = loader.train_dataset()
         # create a new dataset
         ds_2 = ds_1.map(lambda x, y: tuple((tf.subtract(x, 2), y-1)))
-        test = labelled_concat(ds_1, ds_2).__iter__()
+        test = labelled_dataset_concat(ds_1, ds_2).__iter__()
         result = ds_1.map(
             lambda x, y: (x, y, tf.constant(0))).concatenate(
             ds_2.map(lambda data, label: (data, label, tf.constant(1)))).__iter__()
@@ -156,6 +159,7 @@ class TestEpochLoader(unittest.TestCase):
     #     dataset = loader.train_dataset()
     #     x, y = next(dataset.__iter__())
     #     self.assertEqual(x.numpy().shape, (3, 100))
+
 
 if __name__ == '__main__':
     unittest.main()

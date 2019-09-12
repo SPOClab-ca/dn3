@@ -144,13 +144,13 @@ class AttentionLSTMIn(keras.layers.LSTM):
 def dense_layer_1d(in_tensor, growth_rate, bn_size, drop_rate, data_format='channels_first', activation=ReLU):
        in_tensor = BatchNormalization(axis=1 if data_format == 'channels_first' else -1)(in_tensor)
        in_tensor = activation()(in_tensor)
-       in_tensor = Conv1D(bn_size * growth_rate, kernel_size=1, strides=1, use_bias=False, data_format=data_format)(
-           in_tensor
-       )
+       in_tensor = Conv1D(bn_size * growth_rate, kernel_size=1, strides=1, use_bias=False, data_format=data_format,
+                          padding='same')(in_tensor)
 
        in_tensor = BatchNormalization(axis=1 if data_format == 'channels_first' else -1)(in_tensor)
        in_tensor = activation()(in_tensor)
-       in_tensor = Conv1D(growth_rate, kernel_size=1, strides=1, use_bias=False, data_format=data_format)(in_tensor)
+       in_tensor = Conv1D(growth_rate, kernel_size=1, strides=1, use_bias=False, data_format=data_format,
+                          padding='same')(in_tensor)
        in_tensor = SpatialDropout1D(rate=drop_rate)(in_tensor)
 
        return in_tensor
@@ -159,17 +159,15 @@ def dense_layer_1d(in_tensor, growth_rate, bn_size, drop_rate, data_format='chan
 def dense_block_1d(in_tensor, num_layers, bn_size, growth_rate, drop_rate=0.5,
                    data_format='channels_first', activation=ReLU):
     for i in range(num_layers):
-        out = dense_layer_1d(in_tensor, growth_rate, bn_size, drop_rate, data_format=data_format,
-                             activation=activation)(in_tensor)
-        in_tensor = Concatenate(axis=1)([in_tensor, out])
+        out = dense_layer_1d(in_tensor, growth_rate, bn_size, drop_rate, data_format=data_format, activation=activation)
+        in_tensor = Concatenate(axis=1 if data_format == 'channels_first' else -1)([in_tensor, out])
     return in_tensor
 
 
 def transition(in_tensor, num_output_features, pool=2, activation=ReLU, data_format='channels_first'):
     in_tensor = BatchNormalization(axis=1 if data_format == 'channels_first' else -1)(in_tensor)
     in_tensor = activation()(in_tensor)
-    in_tensor = Conv1D(num_output_features, kernel_size=1, strides=1, use_bias=False, data_format=data_format)(
-        in_tensor
-    )
+    in_tensor = Conv1D(num_output_features, kernel_size=1, strides=1, use_bias=False, data_format=data_format,
+                       padding='same')(in_tensor)
     in_tensor = AveragePooling1D(pool, strides=pool)(in_tensor)
     return in_tensor
