@@ -6,7 +6,7 @@ from models import DenseTCNN
 from datasets import BNCI2014001
 from dataloaders import EpochsDataLoader, labelled_dataset_concat
 from utils import dataset_concat
-from tensorflow.python import keras
+from tensorflow import keras
 
 DATASET = BNCI2014001()
 
@@ -51,13 +51,13 @@ if __name__ == '__main__':
 
     for i, subject in enumerate(DATASET.subjects()):
         training, validation, test = training_split(subject, DATASET.subjects()[i-1], loaders)
-        training = training.shuffle(100000).batch(2, drop_remainder=True)
-        validation = validation.batch(2)
-        test = test.batch(2)
+        training = training.shuffle(100000).batch(8, drop_remainder=True)
+        validation = validation.batch(8)
+        test = test.batch(8)
 
         model = DenseTCNN(targets=4, channels=25, samples_t=int(250*args.tlen))
         model.summary()
         model.compile(optimizer=keras.optimizers.Adam(), loss=keras.losses.categorical_crossentropy,
                       metrics=['accuracy'])
 
-        model.fit(x=training, validation_data=validation, epochs=10, workers=4, use_multiprocessing=True)
+        model.fit(x=training, validation_data=validation, epochs=100)

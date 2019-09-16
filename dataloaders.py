@@ -18,16 +18,22 @@ class EpochsDataLoader:
                  normalizer=zscore, num_parallel_calls=tf.data.experimental.AUTOTUNE, picks=None, **kwargs):
         self.epochs = mne.Epochs(raw, events, tmin=tmin, tmax=tmin + tlen - 1 / raw.info['sfreq'], baseline=baseline)
         self.picks = picks
+        self.num_parallel_calls = num_parallel_calls
+        self.channels = 25
+        self.samples_t = raw.info['sfreq'] * tlen
 
         self._dataset = tf.data.Dataset.from_tensor_slices(
             (tf.range(len(self.epochs.events)), self.epochs.events[:, -1]))
+
         # TODO -- find a way to allow parallel epoch loading, currently fails if more than 1
-        self._dataset = self._dataset.map(
-            lambda index, label: tuple(tf.py_function(
-                lambda ind, lab: self._retrieve_epoch(ind, lab), [index, label], [tf.float32, tf.uint16])),
-            num_parallel_calls=1)
+        def tf_retrieve(ind, label):
+            [x, ] = tf.py_function(self._retrieve_epoch, [ind], [tf.float32])
+            x.set_shape((self.channels, self.samples_t))
+            return x, label
+        self._dataset = self._dataset.map(tf_retrieve, num_parallel_calls=1)
 
         self.transforms_in_queue = []
+        # TODO ask Zhihuan what is going on with transform queue
         # preprocessing if necessary
         if preprocessings:
             for preprocessing in preprocessings:
@@ -35,15 +41,14 @@ class EpochsDataLoader:
                 transform = preprocessing.get_transform()
                 # to later apply to tf.data.dataset optionally
                 self.transforms_in_queue.append(transform)
-        self._dataset = self._dataset.map(
-            lambda data, label: tuple((normalizer(data), label)), num_parallel_calls=num_parallel_calls)
+        self._dataset = self._dataset.map(normalizer, num_parallel_calls=num_parallel_calls)
         self._train_dataset = self._dataset
         self.transforms = [normalizer]
 
-    def _retrieve_epoch(self, ep, label):
-        x = self.epochs[ep].get_data(picks=self.picks).astype('float32').squeeze()
+    def _retrieve_epoch(self, ep):
+        x = self.epochs[ep.numpy()].get_data(picks=self.picks).astype('float32').squeeze()
         assert len(x.shape) == 2
-        return x, tf.cast(label, tf.uint16)
+        return x
 
     def train_dataset(self):
         return self._train_dataset
@@ -55,13 +60,9 @@ class EpochsDataLoader:
         return self.transforms_in_queue
 
     def add_transform(self, map_fn, apply_train=True, apply_eval=False):
-        # fixme parallel calls for transforms
         assert apply_train or apply_eval
         self.transforms.append(map_fn)
         if apply_train:
-            self._train_dataset = self._train_dataset.map(
-                lambda data, label: tuple((map_fn(data), label)))
+            self._train_dataset = self._train_dataset.map(map_fn, num_parralel_calls=self.num_parallel_calls)
         if apply_eval:
-            self._dataset = self._dataset.map(lambda data, label: tuple((map_fn(data), label)))
-
-
+            self._dataset = self._dataset.map(map_fn, num_parralel_calls=self.num_parallel_calls)

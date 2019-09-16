@@ -1,7 +1,7 @@
 from layers import *
-from tensorflow.python.keras.layers import *
-from tensorflow.python.keras import Model
-from tensorflow.python.keras.constraints import max_norm
+from tensorflow.keras.layers import *
+from tensorflow.keras import Model
+from tensorflow.keras.constraints import max_norm
 
 
 def ShallowFBCSP(inputshape, outputshape):

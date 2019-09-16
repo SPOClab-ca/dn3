@@ -1,5 +1,5 @@
-import tensorflow.python.keras as keras
-from tensorflow.python.keras.layers import *
+import tensorflow.keras as keras
+from tensorflow.keras.layers import *
 import tensorflow as tf
 
 
