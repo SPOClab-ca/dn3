@@ -9,7 +9,7 @@ def zscore(data, labels=None, axis=-1):
         tf.math.subtract(data, tf.reduce_mean(data, axis=axis, keepdims=True)),
         tf.math.reduce_std(data, axis=axis, keepdims=True)
     )
-    return (data, labels) if labels is not None else labels
+    return (data, labels) if labels is not None else data
 
 
 def dataset_concat(*ds):
@@ -17,7 +17,7 @@ def dataset_concat(*ds):
     assert isinstance(dataset, tf.data.Dataset)
     for d in ds[1:]:
         assert isinstance(d, tf.data.Dataset)
-        dataset.concatenate(d)
+        dataset = dataset.concatenate(d)
     return dataset
 
 

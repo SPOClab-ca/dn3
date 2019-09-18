@@ -43,11 +43,11 @@ class SqueezeLayer(ExpandLayer):
 
 # need these for ShallowConvNet
 def square(x):
-    return tf.square(x)
+    return tf.math.square(x)
 
 
 def log(x):
-    return tf.log(tf.clip(x, min_value=1e-7, max_value=10000))
+    return tf.math.log(tf.keras.backend.clip(x, min_value=1e-7, max_value=10000))
 
 
 class AttentionLSTMIn(keras.layers.LSTM):

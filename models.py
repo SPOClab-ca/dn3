@@ -12,7 +12,7 @@ def ShallowFBCSP(inputshape, outputshape):
     model.add(keras.layers.BatchNormalization())
     model.add(keras.layers.Activation(tf.square))
     model.add(keras.layers.AveragePooling2D((1, 75), 15))
-    model.add(keras.layers.Activation(lambda x: tf.log(tf.maximum(x, tf.constant(1e-6)))))
+    model.add(keras.layers.Activation(lambda x: tf.math.log(tf.maximum(x, tf.constant(1e-6)))))
     model.add(keras.layers.Dropout(0.5))
 
     # Output convolution
@@ -298,15 +298,15 @@ def ShallowConvNet(nb_classes, Chans=64, Samples=128, dropoutRate=0.5):
     """
 
     # start the model
-    input_main = Input((1, Chans, Samples))
-    block1 = Conv2D(40, (1, 13),
-                    input_shape=(1, Chans, Samples),
-                    kernel_constraint=max_norm(2., axis=(0, 1, 2)))(input_main)
-    block1 = Conv2D(40, (Chans, 1), use_bias=False,
+    input_main = Input((Chans, Samples))
+    block1 = ExpandLayer(axis=1)(input_main)
+    block1 = Conv2D(40, (1, 13), data_format='channels_first',
+                    kernel_constraint=max_norm(2., axis=(0, 1, 2)))(block1)
+    block1 = Conv2D(40, (Chans, 1), use_bias=False, data_format='channels_first',
                     kernel_constraint=max_norm(2., axis=(0, 1, 2)))(block1)
     block1 = BatchNormalization(axis=1, epsilon=1e-05, momentum=0.1)(block1)
     block1 = Activation(square)(block1)
-    block1 = AveragePooling2D(pool_size=(1, 35), strides=(1, 7))(block1)
+    block1 = AveragePooling2D(pool_size=(1, 35), strides=(1, 7), data_format='channels_first',)(block1)
     block1 = Activation(log)(block1)
     block1 = Dropout(dropoutRate)(block1)
     flatten = Flatten()(block1)
@@ -316,7 +316,7 @@ def ShallowConvNet(nb_classes, Chans=64, Samples=128, dropoutRate=0.5):
     return Model(inputs=input_main, outputs=softmax)
 
 
-def DenseTCNN(samples_t, channels, targets=4, t_growth=20, do=0.3, subjects=1, temp_layers=(6, 12, 24, 16),
+def DenseTCNN(samples_t, channels, targets=4, t_growth=8, do=0.3, subjects=1, temp_layers=(8, 16, 12),
               compress_theta=0.9, num_init_features=40, bn_size=4, data_format='channels_first'):
     if isinstance(temp_layers, int):
         temp_layers = 3 * [temp_layers]

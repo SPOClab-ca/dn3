@@ -23,7 +23,7 @@ class EpochsDataLoader:
         self.samples_t = raw.info['sfreq'] * tlen
 
         self._dataset = tf.data.Dataset.from_tensor_slices(
-            (tf.range(len(self.epochs.events)), self.epochs.events[:, -1]))
+            (tf.range(len(self.epochs.events)), self.epochs.events[:, -1] - 1))
 
         # TODO -- find a way to allow parallel epoch loading, currently fails if more than 1
         def tf_retrieve(ind, label):

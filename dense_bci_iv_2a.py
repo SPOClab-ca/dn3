@@ -2,7 +2,7 @@ import mne
 import copy
 import argparse
 
-from models import DenseTCNN
+from models import DenseTCNN, ShallowConvNet, ShallowFBCSP
 from datasets import BNCI2014001
 from dataloaders import EpochsDataLoader, labelled_dataset_concat
 from utils import dataset_concat
@@ -11,7 +11,13 @@ from tensorflow import keras
 DATASET = BNCI2014001()
 
 
-def training_split(subject, validation_subject, epoched: dict):
+def single_subject(subject, epoched):
+    training = dataset_concat(*[s.train_dataset() for s in epoched[subject]['session_T'].values()])
+    testing = dataset_concat(*[s.eval_dataset() for s in epoched[subject]['session_E'].values()])
+    return training, testing
+
+
+def all_subjects_split(subject, validation_subject, epoched: dict):
     epoched = copy.copy(epoched)
     test_subject = epoched.pop(subject)
     validation_subject = epoched.pop(validation_subject)
@@ -28,15 +34,7 @@ def training_split(subject, validation_subject, epoched: dict):
     return training, validation, test
 
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="Example for using a meta-model and reptile meta-optimization to "
-                                                 "leverage Thinker Invariance and few-shot augmentation.")
-    parser.add_argument('--tmin', default=2, type=float, help='Start time for epoching')
-    parser.add_argument('--tlen', default=4.5, type=float, help='Length per epoch.')
-    args = parser.parse_args()
-
-    mne.set_log_level(False)
-
+def data_as_loaders(args):
     loaders = dict()
     for subject in DATASET.raw_data:
         loaders[subject] = dict()
@@ -48,16 +46,29 @@ if __name__ == '__main__':
                 if events.shape[0] != 0:
                     loaders[subject][session][run] = EpochsDataLoader(raw, events, tmin=args.tmin, tlen=args.tlen,
                                                                       picks=['eeg', 'eog'])
+    return loaders
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description="Example for using a meta-model and reptile meta-optimization to "
+                                                 "leverage Thinker Invariance and few-shot augmentation.")
+    parser.add_argument('--tmin', default=-0.5, type=float, help='Start time for epoching')
+    parser.add_argument('--tlen', default=4.5, type=float, help='Length per epoch.')
+    args = parser.parse_args()
+
+    mne.set_log_level(False)
+
+    loaders = data_as_loaders(args)
 
     for i, subject in enumerate(DATASET.subjects()):
-        training, validation, test = training_split(subject, DATASET.subjects()[i-1], loaders)
-        training = training.shuffle(100000).batch(8, drop_remainder=True)
+        training, validation, test = all_subjects_split(subject, DATASET.subjects()[i - 1], loaders)
+        training = training.shuffle(3600).batch(32, drop_remainder=True)
         validation = validation.batch(8)
-        test = test.batch(8)
+        test = test.batch(32)
 
         model = DenseTCNN(targets=4, channels=25, samples_t=int(250*args.tlen))
         model.summary()
-        model.compile(optimizer=keras.optimizers.Adam(), loss=keras.losses.categorical_crossentropy,
+        model.compile(optimizer=keras.optimizers.Adam(1e-3), loss=keras.losses.SparseCategoricalCrossentropy(),
                       metrics=['accuracy'])
 
         model.fit(x=training, validation_data=validation, epochs=100)
