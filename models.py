@@ -317,7 +317,7 @@ def ShallowConvNet(nb_classes, Chans=64, Samples=128, dropoutRate=0.5):
 
 
 def DenseTCNN(samples_t, channels, targets=4, t_growth=8, do=0.3, subjects=1, temp_layers=(8, 16, 12),
-              compress_theta=0.9, num_init_features=40, bn_size=4, data_format='channels_first'):
+              compress_theta=1.0, num_init_features=40, bn_size=4, data_format='channels_first'):
     if isinstance(temp_layers, int):
         temp_layers = 3 * [temp_layers]
 

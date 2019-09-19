@@ -1,37 +1,34 @@
 import mne
 import copy
 import argparse
+import tqdm
 
 from models import DenseTCNN, ShallowConvNet, ShallowFBCSP
 from datasets import BNCI2014001
 from dataloaders import EpochsDataLoader, labelled_dataset_concat
+from metaopt import Reptile
 from utils import dataset_concat
 from tensorflow import keras
+import tensorflow as tf
 
 DATASET = BNCI2014001()
 
 
-def single_subject(subject, epoched):
-    training = dataset_concat(*[s.train_dataset() for s in epoched[subject]['session_T'].values()])
-    testing = dataset_concat(*[s.eval_dataset() for s in epoched[subject]['session_E'].values()])
-    return training, testing
-
-
-def all_subjects_split(subject, validation_subject, epoched: dict):
+def loader_split(subject, validation_subject, epoched: dict):
     epoched = copy.copy(epoched)
-    test_subject = epoched.pop(subject)
-    validation_subject = epoched.pop(validation_subject)
+    test_subject = epoched[subject].pop('session_E')
+    validation_subject = epoched[validation_subject].pop('session_E')
 
-    test = dataset_concat(*[s.eval_dataset() for s in test_subject['session_E'].values()])
-    validation = dataset_concat(*[s.eval_dataset() for s in validation_subject['session_E'].values()])
-    training = dataset_concat(
-        # All T and E sessions for all remaining subjects
-        dataset_concat(*[epoched[b][s][r].train_dataset() for b in epoched for s in epoched[b] for r in epoched[b][s]]),
-        # Duplicated T sessions for the validation and test subjects (to balance size of domains)
-        dataset_concat(*[s.train_dataset() for s in validation_subject['session_T'].values()]).repeat(2),
-        dataset_concat(*[s.train_dataset() for s in test_subject['session_T'].values()]).repeat(2)
-    )
-    return training, validation, test
+    for subj in epoched:
+        epoched[subj] = dataset_concat(
+            *[run.train_dataset() for sess in epoched[subj] for run in epoched[subj][sess].values()]
+        )
+        if subj == subject or subj == validation_subject:
+            epoched[subj] = epoched[subj].repeat(2)
+
+    test = dataset_concat(*[s.eval_dataset() for s in test_subject.values()])
+    validation = dataset_concat(*[s.eval_dataset() for s in validation_subject.values()])
+    return epoched, validation, test
 
 
 def data_as_loaders(args):
@@ -54,6 +51,7 @@ if __name__ == '__main__':
                                                  "leverage Thinker Invariance and few-shot augmentation.")
     parser.add_argument('--tmin', default=-0.5, type=float, help='Start time for epoching')
     parser.add_argument('--tlen', default=4.5, type=float, help='Length per epoch.')
+    parser.add_argument('--epochs', '-e', default=1000, type=int)
     args = parser.parse_args()
 
     mne.set_log_level(False)
@@ -61,14 +59,29 @@ if __name__ == '__main__':
     loaders = data_as_loaders(args)
 
     for i, subject in enumerate(DATASET.subjects()):
-        training, validation, test = all_subjects_split(subject, DATASET.subjects()[i - 1], loaders)
-        training = training.shuffle(3600).batch(32, drop_remainder=True)
-        validation = validation.batch(8)
-        test = test.batch(32)
+        training, validation, test = loader_split(subject, DATASET.subjects()[i - 1], loaders)
+        validation = validation.batch(32)
 
         model = DenseTCNN(targets=4, channels=25, samples_t=int(250*args.tlen))
+        # model = ShallowConvNet(4, Chans=25, Samples=int(250*args.tlen))
         model.summary()
-        model.compile(optimizer=keras.optimizers.Adam(1e-2), loss=keras.losses.SparseCategoricalCrossentropy(),
+        optimizer = keras.optimizers.Adam(5e-4, amsgrad=True)
+        model.compile(optimizer=optimizer, loss=keras.losses.SparseCategoricalCrossentropy(),
                       metrics=['accuracy'])
 
-        model.fit(x=training, validation_data=validation, epochs=100)
+        metaopt = Reptile()
+
+        # Train
+        training_loop = tqdm.trange(args.epochs, unit='epochs')
+        for e in training_loop:
+            metaopt.train(training, model, 8, 1e-1, inner_iterations=20)
+            if e % 10 == 0:
+                metrics = model.evaluate(validation)
+                training_loop.set_postfix(lr=optimizer.lr.numpy())
+
+
+        # Test
+        metaopt.few_shot_evaluation(test, model, num_targets=4, num_shots=5)
+
+
+
