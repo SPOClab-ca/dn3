@@ -149,7 +149,7 @@ def dense_layer_1d(in_tensor, growth_rate, bn_size, drop_rate, data_format='chan
 
        in_tensor = BatchNormalization(axis=1 if data_format == 'channels_first' else -1)(in_tensor)
        in_tensor = activation()(in_tensor)
-       in_tensor = Conv1D(growth_rate, kernel_size=1, strides=1, use_bias=False, data_format=data_format,
+       in_tensor = Conv1D(growth_rate, kernel_size=3, strides=1, use_bias=False, data_format=data_format,
                           padding='same')(in_tensor)
        in_tensor = SpatialDropout1D(rate=drop_rate)(in_tensor)
 

@@ -60,23 +60,24 @@ class Reptile(MetaOptimizer):
 
         start_weights = model.get_weights()
         new_subject_weights = []
-        meta_loop = tqdm.tqdm(np.random.permutation(list(loader_dict.keys()))[:batch_sizes[0]])
+        meta_loop = tqdm.tqdm(np.random.permutation(list(loader_dict.keys()))[:batch_sizes[0]], unit='subject')
+        metrics = []
         for subject in meta_loop:
             # model.set_weights(start_weights)
             train_set = loader_dict[subject].shuffle(shuffle_size).take(
                 batch_sizes[2]*inner_iterations).batch(batch_sizes[2])
-            metrics = model.train_on_batch(train_set)
-            meta_loop.set_postfix(dict(zip(model.metrics_names, metrics)))
+            metrics.append(model.train_on_batch(train_set))
+            meta_loop.set_postfix(dict(zip(model.metrics_names, np.mean(metrics, axis=0))))
             new_subject_weights.append(model.get_weights())
         model.set_weights(self._update_weights(start_weights, new_subject_weights, outer_lr))
 
-    def few_shot_evaluation(self, test_set, model, num_targets, num_shots):
+    def few_shot_evaluation(self, test_set, model, num_targets, num_shots, batch_size=4):
         #FIXME Currently assumes for every _num_targets_ training points, there will be one of each class present
         shots = num_targets * num_shots
-        train = test_set.take(shots)
-        test = test_set.skip(shots)
+        train = test_set.take(shots).batch(batch_size)
+        test = test_set.skip(shots).batch(batch_size)
         metrics = model.train_on_batch(train)
-        print(f'After few-shot: {metrics}')
+        print(f'Training Metrics After few-shot: {metrics}')
         return model.evaluate(test)
 
     @staticmethod

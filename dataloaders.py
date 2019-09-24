@@ -16,11 +16,12 @@ class EpochsDataLoader:
 
     def __init__(self, raw: mne.io.Raw, events, tmin: float, tlen: float, baseline=None, preprocessings=None,
                  normalizer=zscore, num_parallel_calls=tf.data.experimental.AUTOTUNE, picks=None, **kwargs):
-        self.epochs = mne.Epochs(raw, events, tmin=tmin, tmax=tmin + tlen - 1 / raw.info['sfreq'], baseline=baseline)
-        self.picks = picks
+        self.epochs = mne.Epochs(raw, events, tmin=tmin, tmax=tmin + tlen - 1 / raw.info['sfreq'], baseline=baseline,
+                                 picks=picks)
         self.num_parallel_calls = num_parallel_calls
-        self.channels = 25
-        self.samples_t = raw.info['sfreq'] * tlen
+
+        self.num_channels = len(self.epochs.ch_names)
+        self.samples_t = self.epochs.times.shape[0]
 
         self._dataset = tf.data.Dataset.from_tensor_slices(
             (tf.range(len(self.epochs.events)), self.epochs.events[:, -1] - 1))
@@ -28,7 +29,7 @@ class EpochsDataLoader:
         # TODO -- find a way to allow parallel epoch loading, currently fails if more than 1
         def tf_retrieve(ind, label):
             [x, ] = tf.py_function(self._retrieve_epoch, [ind], [tf.float32])
-            x.set_shape((self.channels, self.samples_t))
+            x.set_shape((self.num_channels, self.samples_t))
             return x, label
         self._dataset = self._dataset.map(tf_retrieve, num_parallel_calls=1)
 
@@ -46,7 +47,7 @@ class EpochsDataLoader:
         self.transforms = [normalizer]
 
     def _retrieve_epoch(self, ep):
-        x = self.epochs[ep.numpy()].get_data(picks=self.picks).astype('float32').squeeze()
+        x = self.epochs[ep.numpy()].get_data().astype('float32').squeeze()
         assert len(x.shape) == 2
         return x
 
@@ -63,6 +64,12 @@ class EpochsDataLoader:
         assert apply_train or apply_eval
         self.transforms.append(map_fn)
         if apply_train:
-            self._train_dataset = self._train_dataset.map(map_fn, num_parralel_calls=self.num_parallel_calls)
+            self._train_dataset = self._train_dataset.map(map_fn, num_parallel_calls=self.num_parallel_calls)
         if apply_eval:
-            self._dataset = self._dataset.map(map_fn, num_parralel_calls=self.num_parallel_calls)
+            self._dataset = self._dataset.map(map_fn, num_parallel_calls=self.num_parallel_calls)
+
+    @property
+    def targets(self):
+        target = self.epochs.events[:, -1]
+        # return np.unique(target).shape[0]
+        return int(np.max(target) + 1)

@@ -7,28 +7,43 @@ import mne
 import numpy as np
 
 
+TEST_T_MIN, TEST_T_LEN = -0.002, 0.005
+
+
+def create_dummy_raw():
+    """
+    Create some dummy raw data and associated events
+    Returns:
+    -------
+
+    """
+    sinx = np.sin(np.arange(0, 10, 0.001) * 10).astype('float')
+    cosx = np.cos(np.arange(0, 10, 0.001) * 10).astype('float')
+    data = np.array([sinx, cosx])
+    ch_names = [str(s) for s in range(2)]
+    ch_types = ['mag', 'mag']
+    info = mne.create_info(ch_names=ch_names, sfreq=1000, ch_types=ch_types)
+    raw = mne.io.RawArray(data, info)
+    events = np.array([[2, 0, 5], [1200, 0, 3], [2000, 0, 1]])
+    return raw, events
+
+
 class TestEpochLoader(unittest.TestCase):
 
     def setUp(self):
         # create dummy raw data for unit test
-        sinx = np.sin(np.arange(0, 10, 0.001) * 10).astype('float')
-        cosx = np.cos(np.arange(0, 10, 0.001) * 10).astype('float')
-        data = np.array([sinx, cosx])
-        ch_names = [str(s) for s in range(2)]
-        ch_types = ['mag', 'mag']
-        info = mne.create_info(ch_names=ch_names, sfreq=1000, ch_types=ch_types)
-        self.raw = mne.io.RawArray(data, info)
-        self.epochs_data = np.array(
-            [[sinx[:5], cosx[:5]], [sinx[1198:1203], cosx[1198:1203]], [sinx[1998:2003], cosx[1998:2003]]])
-        self.events = np.array([[2, 0, 5], [1200, 0, 3], [2000, 0, 1]])
+        self.raw, self.events = create_dummy_raw()
+        self.epochs_data = np.stack(
+            [self.raw.get_data()[:, :5], self.raw.get_data()[:, 1198:1203], self.raw.get_data()[:, 1998:2003]]
+        )
 
     def test_epochs(self):
-        loader = EpochsDataLoader(self.raw, self.events, -0.002, 0.005, baseline=None)
+        loader = EpochsDataLoader(self.raw, self.events, TEST_T_MIN, TEST_T_LEN, baseline=None)
 
         self.assertEqual(np.any(loader.epochs.get_data() - self.epochs_data), False)
 
     def test_trainDataAfterZscore(self):
-        loader = EpochsDataLoader(self.raw, self.events, -0.002, 0.005, baseline=None)
+        loader = EpochsDataLoader(self.raw, self.events, TEST_T_MIN, TEST_T_LEN, baseline=None)
         # test the first 3 iterations
         dataset = loader.train_dataset()
         it = iter(dataset)
@@ -41,7 +56,7 @@ class TestEpochLoader(unittest.TestCase):
                 self.assertEqual(np.any(x - transform), False)
 
     def test_evaluateDataAfterZscore(self):
-        loader = EpochsDataLoader(self.raw, self.events, -0.002, 0.005, baseline=None)
+        loader = EpochsDataLoader(self.raw, self.events, TEST_T_MIN, TEST_T_LEN, baseline=None)
         # test the first 3 iterations
         dataset = loader.eval_dataset()
         it = iter(dataset)
@@ -62,7 +77,7 @@ class TestEpochLoader(unittest.TestCase):
 
     # test add_transform method using dummy transform functions
     def test_addTransformForTrainData(self):
-        loader = EpochsDataLoader(self.raw, self.events, -0.002, 0.005, baseline=None)
+        loader = EpochsDataLoader(self.raw, self.events, TEST_T_MIN, TEST_T_LEN, baseline=None)
         dummy_transform = DummyTransform()
         loader.add_transform(dummy_transform, apply_train=True, apply_eval=False)
         dataset = loader.train_dataset()
@@ -76,7 +91,7 @@ class TestEpochLoader(unittest.TestCase):
                 self.assertEqual(np.any(x - transform), False)
 
     def test_addTransformForEvaluateData(self):
-        loader = EpochsDataLoader(self.raw, self.events, -0.002, 0.005, baseline=None)
+        loader = EpochsDataLoader(self.raw, self.events, TEST_T_MIN, TEST_T_LEN, baseline=None)
         dummy_transform = DummyTransform()
         loader.add_transform(dummy_transform, apply_train=False, apply_eval=True)
         dataset = loader.eval_dataset()
@@ -90,7 +105,7 @@ class TestEpochLoader(unittest.TestCase):
                 self.assertEqual(np.any(x - transform), False)
 
     def test_MultiSubject(self):
-        loader = EpochsDataLoader(self.raw, self.events, -0.002, 0.005, baseline=None)
+        loader = EpochsDataLoader(self.raw, self.events, TEST_T_MIN, TEST_T_LEN, baseline=None)
         ds_1 = loader.train_dataset()
         # create a new dataset
         ds_2 = ds_1.map(lambda x, y: tuple((tf.subtract(x, 2), y-1)))

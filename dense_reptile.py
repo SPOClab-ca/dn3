@@ -3,10 +3,11 @@ import copy
 import argparse
 import tqdm
 
-from models import DenseTCNN, ShallowConvNet, ShallowFBCSP
+from models import DenseTCNN, ShallowConvNet, ShallowFBCSP, SCNN
 from datasets import BNCI2014001
 from dataloaders import EpochsDataLoader, labelled_dataset_concat
 from metaopt import Reptile
+from transforms import LabelSmoothing
 from utils import dataset_concat
 from tensorflow import keras
 import tensorflow as tf
@@ -51,7 +52,9 @@ if __name__ == '__main__':
                                                  "leverage Thinker Invariance and few-shot augmentation.")
     parser.add_argument('--tmin', default=-0.5, type=float, help='Start time for epoching')
     parser.add_argument('--tlen', default=4.5, type=float, help='Length per epoch.')
-    parser.add_argument('--epochs', '-e', default=1000, type=int)
+    parser.add_argument('--epochs', '-e', default=300, type=int)
+    parser.add_argument('--label-smoothing', '-ls', default=0, type=float, help='A parameter from 0-1 to indicate the '
+                                                                                'degree of label smoothing. (0:none)')
     args = parser.parse_args()
 
     mne.set_log_level(False)
@@ -63,10 +66,12 @@ if __name__ == '__main__':
         validation = validation.batch(32)
 
         model = DenseTCNN(targets=4, channels=25, samples_t=int(250*args.tlen))
+        # model = SCNN((25, 250*args.tlen), 4)
         # model = ShallowConvNet(4, Chans=25, Samples=int(250*args.tlen))
         model.summary()
-        optimizer = keras.optimizers.Adam(5e-4, amsgrad=True)
-        model.compile(optimizer=optimizer, loss=keras.losses.SparseCategoricalCrossentropy(),
+        optimizer = keras.optimizers.Adam(1e-3, amsgrad=False, beta_1=0)
+        model.compile(optimizer=optimizer,
+                      loss=keras.losses.SparseCategoricalCrossentropy(),
                       metrics=['accuracy'])
 
         metaopt = Reptile()
@@ -74,11 +79,10 @@ if __name__ == '__main__':
         # Train
         training_loop = tqdm.trange(args.epochs, unit='epochs')
         for e in training_loop:
-            metaopt.train(training, model, 8, 1e-1, inner_iterations=20)
-            if e % 10 == 0:
+            metaopt.train(training, model, batch_sizes=32, outer_lr=1.0, inner_iterations=10)
+            if e % 2 == 0:
                 metrics = model.evaluate(validation)
                 training_loop.set_postfix(lr=optimizer.lr.numpy())
-
 
         # Test
         metaopt.few_shot_evaluation(test, model, num_targets=4, num_shots=5)
