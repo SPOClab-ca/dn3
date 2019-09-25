@@ -1,7 +1,8 @@
 import unittest
 import numpy as np
+import tensorflow as tf
 from dataloaders import EpochsDataLoader
-from transforms import LabelSmoothing
+from transforms import LabelSmoothing, Mixup
 from tests.testDataloaders import create_dummy_raw
 
 
@@ -40,6 +41,28 @@ class TestLabelSmoothing(unittest.TestCase):
                 _, labels = next(eval)
                 self.assertEqual(np.allclose(
                     xform_smooth.numpy(), numpy_label_smooth(labels, self.loader.targets, self.gamma)), True)
+
+
+class TestMixup(unittest.TestCase):
+
+    def setUp(self) -> None:
+        self.raw, self.events = create_dummy_raw()
+        self.loader = EpochsDataLoader(self.raw, self.events, -0.002, 0.005)
+        self.rate = 1.0
+        self.batch_size = 4
+        self.mixup = Mixup(self.rate)
+
+    def test_add_batched(self):
+        ds = self.loader.train_dataset().repeat(10).batch(
+            self.batch_size, drop_remainder=True).map(self.mixup, num_parallel_calls=1)
+        for _, label in ds:
+            pass
+
+    def test_add_batched_multiproc(self):
+        ds = self.loader.train_dataset().repeat(10).batch(self.batch_size, drop_remainder=True).map(
+            self.mixup, num_parallel_calls=tf.data.experimental.AUTOTUNE)
+        for _, label in ds:
+            pass
 
 
 if __name__ == '__main__':

@@ -1,4 +1,5 @@
 from layers import *
+from math import ceil
 from tensorflow.keras.layers import *
 from tensorflow.keras import Model
 from tensorflow.keras.constraints import max_norm
@@ -27,54 +28,22 @@ def ShallowFBCSP(inputshape, outputshape):
     return model
 
 
-def SCNN(inputshape, outputshape, params=None):
+def SCNN(targets, s_growth=16, s_layers=3, t_growth=12, channels=22, samples=1500, shrink_factor=2,
+         do=0.3, channel_do=0.0, pooling=20, subjects=1, temp_layers=3, runs=None, data_format='channels_first'):
+    temp_len = ceil(0.02 * samples)
+    inp = Input((channels, samples))
+    x = SpatialDropout1D(channel_do)(inp)
 
-    params = dict() if params is None else params
+    x = scnn_spatial_filter(x, s_growth, s_layers, do_rate=do, data_format=data_format)
+    x = scnn_temporal_filter(x, t_growth, temp_layers, temp_len, dropout=do, data_format=data_format)
 
-    temp_layers = int(params.get('temp_layers', 4))
-    steps = int(params.get('steps', 2))
-    temporal = int(params.get('temporal', 24))
-    temp_pool = int(params.get('temp_pool', 20))
-    lunits = [int(x) for x in params.get('lunits', [200, 40])]
-    activation = params.get('activation', keras.activations.selu)
-    reg = float(params.get('regularization', 0.01))
-    do = min(1., max(0., float(params.get('dropout', 0.55))))
+    # x = Conv2D(int(s_growth*s_layers*t_growth*temp_layers/shrink_factor), (3, 3))(x)
+    x = Reshape((x.shape[1]*x.shape[2], x.shape[3]))(x)
+    x = Conv1D(int(s_growth*s_layers*t_growth*temp_layers/shrink_factor), 1, data_format=data_format)(x)
+    x = AveragePooling1D(pooling, data_format=data_format, name='features')(x)
 
-    convs = [inputshape[-1] // steps for _ in range(1, steps)]
-    convs += [inputshape[-1] - sum(convs) + len(convs)]
-
-    ins = keras.layers.Input(inputshape)
-
-    conv = ExpandLayer()(ins)
-
-    for i, c in enumerate(convs):
-        conv = keras.layers.Conv2D(lunits[0] // len(convs), (1, c), activation=activation,
-                                   use_bias=False, name='spatial_conv_{0}'.format(i),
-                                   kernel_regularizer=keras.layers.regularizers.l2(reg),
-                                   data_format='channels_last')(conv)
-    conv = keras.layers.BatchNormalization()(conv)
-    conv = keras.layers.SpatialDropout2D(do/2)(conv)
-
-    for i in range(temp_layers):
-        conv = keras.layers.Conv2D(lunits[1], (temporal, 1), activation=activation,
-                                   use_bias=False, name='temporal_conv_{0}'.format(i),
-                                   kernel_regularizer=keras.layers.regularizers.l2(reg),
-                                   data_format='channels_last')(conv)
-    conv = keras.layers.BatchNormalization()(conv)
-    conv = keras.layers.AveragePooling2D((temp_pool, 1))(conv)
-    conv = keras.layers.SpatialDropout2D(do/2)(conv)
-
-    outs = keras.layers.Flatten()(conv)
-
-    for units in lunits[2:]:
-        outs = keras.layers.Dense(units, activation=activation,
-                                  kernel_regularizer=keras.layers.regularizers.l2(reg))(outs)
-        outs = keras.layers.BatchNormalization()(outs)
-        outs = keras.layers.Dropout(do)(outs)
-    outs = keras.layers.Dense(outputshape, activation='softmax', name='OUT',
-                              kernel_regularizer=keras.layers.regularizers.l2(reg))(outs)
-
-    return keras.models.Model(ins, outs)
+    out = Dense(targets, activation='softmax')(Flatten()(x))
+    return Model(inp, out)
 
 
 def RaSCNN(inputshape, outputshape, params=None):

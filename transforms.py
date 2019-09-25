@@ -15,6 +15,15 @@ class BaseTransform(object):
         raise NotImplementedError()
 
 
+class OneHotLabels(BaseTransform):
+
+    def __init__(self, max_classes):
+        self.max_classes = max_classes
+
+    def __call__(self, x: tf.Tensor, label: tf.Tensor, *args, **kwargs):
+        return (x, tf.one_hot(label, self.max_classes), *args)
+
+
 class ChannelShuffle(BaseTransform):
 
     def __init__(self, p=0.1):
@@ -47,20 +56,21 @@ class Mixup(BaseTransform):
 
     Warnings: This transform is only effective once the dataset has been batched, thus it will be ineffective if
     applied to a DataLoader, it needs to be mapped to the batched (and ideally shuffled) datasets e.g.
-    training_data.shuffle(BUF_SIZE).batch(BATCH_SIZE).map(MixupInstance(...))
+    training_data.shuffle(BUF_SIZE).batch(BATCH_SIZE, drop_remainder=True).map(MixupInstance(...))
     """
-    def __init__(self, rate=0):
+    def __init__(self, rate):
         self.rate = rate
-
-        lam_mu = np.random.beta(self.rate, self.rate)
-
+        self.beta_sampler = tfp.distributions.Beta(rate, rate)
 
     def __call__(self, *args, **kwargs):
-
-        for arg in args:
-            pass
-            #linearly interpolate as x and label
-        pass
+        args = list(args)
+        batch_size = args[0].shape[0]
+        lam_mu = self.beta_sampler.sample(batch_size)[:, tf.newaxis, tf.newaxis]
+        permutation = tf.random.shuffle(tf.range(batch_size))
+        for i, arg in enumerate(args):
+            arg = tf.cast(arg, tf.float32)
+            args[i] = lam_mu * arg + (1 - lam_mu) * tf.gather(arg, permutation, axis=0)
+        return args
 
 
 class DummyTransform(BaseTransform):

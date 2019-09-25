@@ -1,14 +1,13 @@
 import mne
 import copy
 import argparse
-import tensorflow as tf
 
-from models import DenseTCNN, ShallowConvNet, ShallowFBCSP
+from models import DenseTCNN, ShallowConvNet, ShallowFBCSP, SCNN
 from datasets import BNCI2014001
 from dataloaders import EpochsDataLoader, labelled_dataset_concat
 from utils import dataset_concat
 from tensorflow import keras
-import numpy as np
+from transforms import LabelSmoothing, Mixup, OneHotLabels
 
 DATASET = BNCI2014001()
 
@@ -64,13 +63,16 @@ if __name__ == '__main__':
 
     for i, subject in enumerate(DATASET.subjects()):
         training, validation, test = all_subjects_split(subject, DATASET.subjects()[i - 1], loaders)
-        training = training.shuffle(6000).batch(16, drop_remainder=True)
-        validation = validation.batch(8)
-        test = test.batch(32)
+        training = training.map(LabelSmoothing(4))
+        training = training.shuffle(6000).batch(60, drop_remainder=True)
 
-        model = DenseTCNN(targets=4, channels=25, samples_t=int(250*args.tlen))
+        validation = validation.map(OneHotLabels(4)).batch(32)
+        test = test.map(OneHotLabels(4)).batch(32)
+
+        # model = DenseTCNN(targets=4, channels=25, samples_t=int(250*args.tlen))
+        model = SCNN(targets=4, channels=25, samples=int(250*args.tlen))
         model.summary()
-        model.compile(optimizer=keras.optimizers.Adam(1e-4), loss=keras.losses.SparseCategoricalCrossentropy(),
+        model.compile(optimizer=keras.optimizers.Adam(1e-4), loss=keras.losses.CategoricalCrossentropy(),
                       metrics=['accuracy'], )#callbacks=[keras.callbacks.LearningRateScheduler(lambda e: 1e-5 * e / 10 if e < 10 else 1e-4 / e)])
 
         model.fit(x=training, validation_data=validation, epochs=100)
