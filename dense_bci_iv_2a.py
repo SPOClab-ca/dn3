@@ -63,16 +63,15 @@ if __name__ == '__main__':
 
     for i, subject in enumerate(DATASET.subjects()):
         training, validation, test = all_subjects_split(subject, DATASET.subjects()[i - 1], loaders)
-        training = training.map(LabelSmoothing(4))
         training = training.shuffle(6000).batch(60, drop_remainder=True)
 
-        validation = validation.map(OneHotLabels(4)).batch(32)
-        test = test.map(OneHotLabels(4)).batch(32)
+        validation = validation.batch(32)
+        test = test.batch(32)
 
         # model = DenseTCNN(targets=4, channels=25, samples_t=int(250*args.tlen))
         model = SCNN(targets=4, channels=25, samples=int(250*args.tlen))
         model.summary()
-        model.compile(optimizer=keras.optimizers.Adam(1e-4), loss=keras.losses.CategoricalCrossentropy(),
+        model.compile(optimizer=keras.optimizers.Adam(5e-5), loss=keras.losses.SparseCategoricalCrossentropy(),
                       metrics=['accuracy'], )#callbacks=[keras.callbacks.LearningRateScheduler(lambda e: 1e-5 * e / 10 if e < 10 else 1e-4 / e)])
 
         model.fit(x=training, validation_data=validation, epochs=100)

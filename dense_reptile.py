@@ -65,8 +65,8 @@ if __name__ == '__main__':
         training, validation, test = loader_split(subject, DATASET.subjects()[i - 1], loaders)
         validation = validation.batch(32)
 
-        model = DenseTCNN(targets=4, channels=25, samples_t=int(250*args.tlen))
-        # model = SCNN((25, 250*args.tlen), 4)
+        # model = DenseTCNN(targets=4, channels=25, samples_t=int(250*args.tlen))
+        model = SCNN(4, channels=25, samples=int(250*args.tlen))
         # model = ShallowConvNet(4, Chans=25, Samples=int(250*args.tlen))
         model.summary()
         optimizer = keras.optimizers.Adam(1e-3, amsgrad=False, beta_1=0)

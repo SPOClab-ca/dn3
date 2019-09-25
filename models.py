@@ -28,7 +28,7 @@ def ShallowFBCSP(inputshape, outputshape):
     return model
 
 
-def SCNN(targets, s_growth=16, s_layers=3, t_growth=12, channels=22, samples=1500, shrink_factor=2,
+def SCNN(targets, s_growth=8, s_layers=3, t_growth=8, channels=22, samples=1500, shrink_factor=2,
          do=0.3, channel_do=0.0, pooling=20, subjects=1, temp_layers=3, runs=None, data_format='channels_first'):
     temp_len = ceil(0.02 * samples)
     inp = Input((channels, samples))
