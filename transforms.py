@@ -65,12 +65,17 @@ class Mixup(BaseTransform):
     def __call__(self, *args, **kwargs):
         args = list(args)
         batch_size = args[0].shape[0]
-        lam_mu = self.beta_sampler.sample(batch_size)[:, tf.newaxis, tf.newaxis]
+        print(batch_size)
+        lam_mu = self.beta_sampler.sample(batch_size)
         permutation = tf.random.shuffle(tf.range(batch_size))
         for i, arg in enumerate(args):
             arg = tf.cast(arg, tf.float32)
-            args[i] = lam_mu * arg + (1 - lam_mu) * tf.gather(arg, permutation, axis=0)
-        return args
+            lam_exp = lam_mu
+            for _ in range(len(arg.shape)-1):
+                lam_exp = tf.expand_dims(lam_exp, -1)
+            args[i] = lam_exp * arg + (1 - lam_exp) * tf.gather(arg, permutation, axis=0)
+            print(args[i].shape)
+        return tuple(args)
 
 
 class DummyTransform(BaseTransform):

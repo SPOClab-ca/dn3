@@ -28,19 +28,23 @@ def ShallowFBCSP(inputshape, outputshape):
     return model
 
 
-def SCNN(targets, s_growth=8, s_layers=3, t_growth=8, channels=22, samples=1500, shrink_factor=2,
-         do=0.3, channel_do=0.0, pooling=20, subjects=1, temp_layers=3, runs=None, data_format='channels_first'):
+def SCNN(targets, s_growth=32, s_layers=3, t_filters=200, channels=22, samples=1500, shrink_factor=1.0,
+         do=0.2, channel_do=0.0, pooling=20, subjects=1, temp_layers=3, runs=None, data_format='channels_first'):
     temp_len = ceil(0.02 * samples)
+    # temp_len = 7
     inp = Input((channels, samples))
     x = SpatialDropout1D(channel_do)(inp)
 
     x = scnn_spatial_filter(x, s_growth, s_layers, do_rate=do, data_format=data_format)
-    x = scnn_temporal_filter(x, t_growth, temp_layers, temp_len, dropout=do, data_format=data_format)
 
-    # x = Conv2D(int(s_growth*s_layers*t_growth*temp_layers/shrink_factor), (3, 3))(x)
-    x = Reshape((x.shape[1]*x.shape[2], x.shape[3]))(x)
-    x = Conv1D(int(s_growth*s_layers*t_growth*temp_layers/shrink_factor), 1, data_format=data_format)(x)
-    x = AveragePooling1D(pooling, data_format=data_format, name='features')(x)
+    for i in range(1):
+        x = scnn_temporal_filter(x, t_filters, temp_layers, temp_len, dropout=do, data_format=data_format)
+        x = scnn_transition(x, shrink_factor, pooling=3)
+
+    # x = scnn_temporal_filter(x, t_filters, temp_layers - temp_layers//2, temp_len, dropout=do, data_format=data_format)
+    # x = scnn_transition(x, shrink_factor)
+
+    x = Flatten(name='features')(GlobalAveragePooling1D(data_format='channels_first')(x))
 
     out = Dense(targets, activation='softmax')(Flatten()(x))
     return Model(inp, out)
@@ -310,7 +314,7 @@ def DenseTCNN(samples_t, channels, targets=4, t_growth=20, do=0.7, subjects=1, t
                           data_format=data_format)
 
     classifier = BatchNormalization(axis=1 if data_format == 'channel_first' else -1, name='features')(d_in)
-    classifier = GlobalAveragePooling1D()(classifier)
+    classifier = GlobalAveragePooling1D(data_format='channels_first')(classifier)
     # classifier = Dense(num_init_features, activation='relu')(classifier)
     classifier = Dense(targets, activation='softmax')(classifier)
 

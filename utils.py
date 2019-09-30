@@ -21,6 +21,16 @@ def dataset_concat(*ds):
     return dataset
 
 
+class CosineScheduleLR:
+    def __init__(self, max_lr, warmup=10, total_epochs=100):
+        self.max_lr = max_lr
+        self.warmup = warmup
+        self.real_eps = total_epochs - warmup
+
+    def __call__(self, epoch):
+        return min(self.max_lr * epoch / self.warmup, self.max_lr * 0.5 * (1 + np.cos(epoch * np.pi / self.real_eps)))
+
+
 def labelled_dataset_concat(*datasets):
     """
     Concatenates all the datasets provided into one Dataset with an additional label corresponding to its original

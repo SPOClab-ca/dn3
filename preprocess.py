@@ -41,15 +41,17 @@ class EApreprocessor(Preprocessing):
 
     """
     def __init__(self):
-        self.reference_matrix = 0
+        self.reference_matrix = None
 
     def __call__(self, epochs: mne.epochs, *args, **kwargs):
         data = epochs.get_data()
         for epoch in data:
-            self.reference_matrix += np.matmul(epoch, epoch.T)
+            self.reference_matrix += tf.matmul(epoch, epoch, transpose_b=True)
         self.reference_matrix = self.reference_matrix / len(data)
-        self.reference_matrix = np.linalg.inv(np.sqrt(self.reference_matrix))
+        self.reference_matrix = tf.constant(tf.linalg.inv(tf.linalg.sqrtm(self.reference_matrix)), dtype=tf.float32)
 
     def get_transform(self):
+        if self.reference_matrix is None:
+            raise ReferenceError('Preprocessor must be executed before the transform can be retrieved.')
         transform = EATransform(self.reference_matrix)
         return transform

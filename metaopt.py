@@ -71,13 +71,13 @@ class Reptile(MetaOptimizer):
             new_subject_weights.append(model.get_weights())
         model.set_weights(self._update_weights(start_weights, new_subject_weights, outer_lr))
 
-    def few_shot_evaluation(self, test_set, model, num_targets, num_shots, batch_size=4):
+    def few_shot_evaluation(self, test_set, model: keras.Model, num_targets, num_shots, batch_size=None, iterations=50):
         #FIXME Currently assumes for every _num_targets_ training points, there will be one of each class present
         shots = num_targets * num_shots
-        train = test_set.take(shots).batch(batch_size)
+        batch_size = batch_size if batch_size is not None else num_shots
+        train = test_set.take(shots).shuffle(shots).batch(batch_size)
         test = test_set.skip(shots).batch(batch_size)
-        metrics = model.train_on_batch(train)
-        print(f'Training Metrics After few-shot: {metrics}')
+        model.fit(x=train, epochs=iterations)
         return model.evaluate(test)
 
     @staticmethod

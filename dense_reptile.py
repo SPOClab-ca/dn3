@@ -7,7 +7,6 @@ from models import DenseTCNN, ShallowConvNet, ShallowFBCSP, SCNN
 from datasets import BNCI2014001
 from dataloaders import EpochsDataLoader, labelled_dataset_concat
 from metaopt import Reptile
-from transforms import LabelSmoothing
 from utils import dataset_concat
 from tensorflow import keras
 import tensorflow as tf
@@ -52,7 +51,7 @@ if __name__ == '__main__':
                                                  "leverage Thinker Invariance and few-shot augmentation.")
     parser.add_argument('--tmin', default=-0.5, type=float, help='Start time for epoching')
     parser.add_argument('--tlen', default=4.5, type=float, help='Length per epoch.')
-    parser.add_argument('--epochs', '-e', default=300, type=int)
+    parser.add_argument('--epochs', '-e', default=120, type=int)
     parser.add_argument('--label-smoothing', '-ls', default=0, type=float, help='A parameter from 0-1 to indicate the '
                                                                                 'degree of label smoothing. (0:none)')
     args = parser.parse_args()
@@ -85,6 +84,9 @@ if __name__ == '__main__':
                 training_loop.set_postfix(lr=optimizer.lr.numpy())
 
         # Test
+        # Before few-shot
+        model.evaluate(test)
+        # Few-shot
         metaopt.few_shot_evaluation(test, model, num_targets=4, num_shots=5)
 
 

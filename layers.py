@@ -140,7 +140,7 @@ class AttentionLSTMIn(keras.layers.LSTM):
         return super(AttentionLSTMIn, self).step(inputs, states)
 
 
-def scnn_spatial_filter(x, filters, depth, do_rate=0, activation='relu', batch_norm=True,
+def scnn_spatial_filter(x, filters, depth, do_rate=0, activation=ReLU, batch_norm=True,
                         residual='dense', data_format='channels_first'):
     """
     Creates a deep convolutional spatial filter without temporal aspect
@@ -166,13 +166,13 @@ def scnn_spatial_filter(x, filters, depth, do_rate=0, activation='relu', batch_n
     inp = x
     for i in range(depth):
         l_begin = x
-        x = ExpandLayer(axis=1)(x)
-        x = Conv2D(filters, (channels + filters*i, 1), activation=activation, padding='valid',
-                   data_format=data_format)(x)
-        x = SqueezeLayer(axis=2)(x)
-        x = SpatialDropout1D(do_rate)(x)
         if batch_norm:
             x = BatchNormalization(axis=1 if data_format == 'channels_first' else -1)(x)
+        x = activation()(x)
+        x = ExpandLayer(axis=1)(x)
+        x = Conv2D(filters, (channels + filters*i, 1), padding='valid',data_format=data_format)(x)
+        x = SqueezeLayer(axis=2)(x)
+        x = SpatialDropout1D(do_rate)(x)
         if not isinstance(residual, str):
             pass
         elif residual.lower() == 'dense':
@@ -184,15 +184,50 @@ def scnn_spatial_filter(x, filters, depth, do_rate=0, activation='relu', batch_n
     return x
 
 
-def scnn_temporal_filter(x, growth, depth, t_len, dropout=0., activation='relu', data_format='channels_first'):
-    x = ExpandLayer(axis=1)(x)
+def scnn_temporal_filter(x, filters, depth, t_len, dropout=0., activation=ReLU, data_format='channels_first',
+                         residual='layerwise'):
+    """
+    Creates a deep convolutional temporal feature extractor without spatial aspect
+    Parameters
+    ----------
+    x: The input tensor, of shape (batch, channels, temporal)
+    filters: The number of filters per layer, if residual is set to 'dense', then this is the growth rate.
+    depth: The number of layers
+    do_rate: Dropout rate per layer
+    activation: Activation at each layer
+    residual: One of ['layerwise', 'netwise', 'dense'] or None. Layerwise adds a residual connection from the input
+              (through 1x1 convolutions) to the end of each layer. Dense is like densenet, concatenating previous
+              filters at each step. Netwise adds one residual from start to end. None ignores.
+
+    Returns
+    -------
+    Output tensor of shape (batch, filters, temporal)
+    """
+    x = ExpandLayer(axis=-1)(x)
+    inp = x
     for i in range(depth):
         l_start = x
-        x = Conv2D(growth, (1, t_len), dilation_rate=(1, depth-i), padding='same', data_format=data_format,
-                   activation=activation)(x)
-        x = SpatialDropout2D(dropout)(x)
         x = BatchNormalization(axis=1 if data_format == 'channels_first' else -1)(x)
-        x = Concatenate(axis=1)([x, l_start])
+        x = activation()(x)
+        x = Conv2D(filters, (t_len, 1), dilation_rate=(2 ** (i + 1) - 1, 1), padding='same', data_format=data_format)(x)
+        x = SpatialDropout2D(dropout)(x)
+        if not isinstance(residual, str):
+            pass
+        elif residual.lower() == 'dense':
+            x = Concatenate(axis=1)([x, l_start])
+        elif residual.lower() == 'layerwise':
+            x = Subtract()([x, Conv2D(filters, 1, data_format=data_format)(l_start)])
+    if isinstance(residual, str) and residual.lower() == 'netwise':
+        x = Add()([x, Conv2D(filters, 1, data_format=data_format)(inp)])
+    return SqueezeLayer()(x)
+
+
+def scnn_transition(x, shrink_factor=2, pooling=3, data_format='channels_first', activation=ReLU):
+    # x = Reshape((x.shape[1] * x.shape[2], x.shape[3]))(x)
+    x = BatchNormalization()(x)
+    x = activation()(x)
+    x = Conv1D(int(x.shape[1] * shrink_factor), 1, data_format=data_format)(x)
+    x = MaxPool1D(pooling, data_format=data_format)(x)
     return x
 
 
