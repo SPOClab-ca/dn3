@@ -71,12 +71,12 @@ if __name__ == '__main__':
         test = test.batch(32)
 
         # model = DenseTCNN(targets=4, channels=25, samples_t=int(250*args.tlen))
-        model = ShallowConvNet(4, Chans=25, Samples=int(250*args.tlen))
-        # model = SCNN(targets=4, channels=25, samples=int(250*args.tlen))
+        # model = ShallowConvNet(4, Chans=25, Samples=int(250*args.tlen))
+        model = SCNN(targets=4, channels=25, samples=int(250*args.tlen))
         model.summary()
-        model.compile(optimizer=RAdamOptimizer(),
+        model.compile(optimizer=RAdamOptimizer(learning_rate=1e-3),
                       loss=keras.losses.SparseCategoricalCrossentropy(),
                       metrics=['accuracy'],)
-                      # callbacks=[keras.callbacks.LearningRateScheduler(CosineScheduleLR(2e-3, 5, 50))])
 
-        model.fit(x=training, validation_data=validation, epochs=100)
+        model.fit(x=training, validation_data=validation, epochs=40,)
+                  # callbacks=[keras.callbacks.LearningRateScheduler(lambda e, r: r if e % 10 else e / 10)])
