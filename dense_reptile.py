@@ -3,7 +3,7 @@ import copy
 import argparse
 import tqdm
 
-from models import DenseTCNN, ShallowConvNet, ShallowFBCSP, SCNN
+from models import DenseTCNN, ShallowConvNet, ShallowFBCSP, DenseSCNN
 from datasets import BNCI2014001
 from dataloaders import EpochsDataLoader, labelled_dataset_concat
 from metaopt import Reptile
@@ -65,7 +65,7 @@ if __name__ == '__main__':
         validation = validation.batch(32)
 
         # model = DenseTCNN(targets=4, channels=25, samples_t=int(250*args.tlen))
-        model = SCNN(4, channels=25, samples=int(250*args.tlen))
+        model = DenseSCNN(4, channels=25, samples=int(250 * args.tlen))
         # model = ShallowConvNet(4, Chans=25, Samples=int(250*args.tlen))
         model.summary()
         optimizer = keras.optimizers.Adam(1e-3, amsgrad=False, beta_1=0)

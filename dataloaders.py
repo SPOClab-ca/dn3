@@ -33,6 +33,8 @@ class EpochsDataLoader:
             return x, label
         self._dataset = self._dataset.map(tf_retrieve, num_parallel_calls=1)
 
+        self.transforms = [normalizer]
+
         self.transforms_in_queue = []
         # TODO ask Zhihuan what is going on with transform queue
         # preprocessing if necessary
@@ -40,11 +42,11 @@ class EpochsDataLoader:
             for preprocessing in preprocessings:
                 preprocessing(self.epochs)
                 transform = preprocessing.get_transform()
+                self._dataset.map(transform, num_parallel_calls=num_parallel_calls)
                 # to later apply to tf.data.dataset optionally
                 self.transforms_in_queue.append(transform)
         self._dataset = self._dataset.map(normalizer, num_parallel_calls=num_parallel_calls)
         self._train_dataset = self._dataset
-        self.transforms = [normalizer]
 
     def _retrieve_epoch(self, ep):
         x = self.epochs[ep.numpy()].get_data().astype('float32').squeeze()

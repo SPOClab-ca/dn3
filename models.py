@@ -28,19 +28,40 @@ def ShallowFBCSP(inputshape, outputshape):
     return model
 
 
-def SCNN(targets, s_growth=4, s_layers=3, t_growth=4, channels=22, samples=1500, shrink_factor=2,
-         do=0.6, channel_do=0.0, pooling=10, subjects=1, temp_layers=3, runs=None, data_format='channels_first'):
+def DenseSCNN(targets, s_growth=12, s_layers=(3, 6, 2), t_growth=4, channels=22, samples=1500, shrink_factor=4,
+              do=0.3, channel_do=0.0, pooling=5, subjects=1, temp_layers=2, runs=None, data_format='channels_first'):
+    # temp_len = ceil(0.02 * samples)
+    temp_len = 5
+    inp = Input((channels, samples))
+    x = SpatialDropout1D(channel_do)(inp)
+
+    for layers in s_layers:
+        x = scnn_spatial_filter(x, s_growth, layers, do_rate=do, data_format=data_format, residual='dense')
+        x = scnn_transition(x, pooling=2)
+    # x = scnn_temporal_filter(x, t_growth, temp_layers, temp_len, dropout=do, data_format=data_format)
+
+    x = GlobalAveragePooling2D(data_format=data_format, name='features')(x)
+
+    out = Dense(targets, activation='softmax')(Flatten()(x))
+    return Model(inp, out)
+
+
+def SCNN(targets, s_filters=200, s_layers=3, t_filters=40, channels=22, samples=1500, shrink_factor=4,
+         do=0.55, channel_do=0.0, pooling=10, subjects=1, temp_layers=3, runs=None, data_format='channels_first'):
     temp_len = ceil(0.02 * samples)
     inp = Input((channels, samples))
     x = SpatialDropout1D(channel_do)(inp)
 
-    x = scnn_spatial_filter(x, s_growth, s_layers, do_rate=do, data_format=data_format)
-    x = scnn_temporal_filter(x, t_growth, temp_layers, temp_len, dropout=do, data_format=data_format)
+    x = scnn_spatial_filter(x, s_filters, s_layers, do_rate=do/2, data_format=data_format, residual='netwise',
+                            bottleneck=1)
+    x = scnn_temporal_filter(ExpandLayer(axis=-2)(x), t_filters, temp_layers, temp_len, dropout=do, bottleneck=1,
+                             data_format=data_format, residual='layerwise')
+    # for i in range(temp_layers):
+    #     x = Conv1D(40, temp_len, data_format=data_format)(x)
+    #     x = BatchNormalization(axis=1 if data_format == 'channels_first' else -1)(x)
+        # x = SpatialDropout1D(do, data_format=data_format)(x)
 
-    # x = Conv2D(int(s_growth*s_layers*t_growth*temp_layers/shrink_factor), (3, 3))(x)
-    x = Reshape((x.shape[1]*x.shape[2], x.shape[3]))(x)
-    x = Conv1D(int(s_growth*s_layers*t_growth*temp_layers/shrink_factor), 1, data_format=data_format)(x)
-    x = AveragePooling1D(pooling, data_format=data_format, name='features')(x)
+    x = AveragePooling1D(pooling, data_format=data_format, name='features')(SqueezeLayer(axis=-2)(x))
 
     out = Dense(targets, activation='softmax')(Flatten()(x))
     return Model(inp, out)
@@ -269,7 +290,7 @@ def ShallowConvNet(nb_classes, Chans=64, Samples=128, dropoutRate=0.5):
     # start the model
     input_main = Input((Chans, Samples))
     block1 = ExpandLayer(axis=1)(input_main)
-    block1 = Conv2D(40, (1, 13), data_format='channels_first',
+    block1 = Conv2D(200, (1, Chans), data_format='channels_first',
                     kernel_constraint=max_norm(2., axis=(0, 1, 2)))(block1)
     block1 = Conv2D(40, (Chans, 1), use_bias=False, data_format='channels_first',
                     kernel_constraint=max_norm(2., axis=(0, 1, 2)))(block1)

@@ -5,13 +5,15 @@ import argparse
 from tensorflow import keras
 from keras_radam.training import RAdamOptimizer
 
-from models import DenseTCNN, ShallowConvNet, ShallowFBCSP, SCNN
-from datasets import BNCI2014001
+from models import DenseTCNN, ShallowConvNet, ShallowFBCSP, DenseSCNN, SCNN
+from datasets import BNCI2014001, PhysioNetMMI
 from dataloaders import EpochsDataLoader, labelled_dataset_concat
+from preprocess import EApreprocessor
 from utils import dataset_concat, CosineScheduleLR
 from transforms import LabelSmoothing, Mixup, OneHotLabels
 
 DATASET = BNCI2014001()
+# DATASET = PhysioNetMMI()
 
 
 def single_subject(subject, epoched):
@@ -48,7 +50,8 @@ def data_as_loaders(args):
                 events = mne.find_events(raw)
                 if events.shape[0] != 0:
                     loaders[subject][session][run] = EpochsDataLoader(raw, events, tmin=args.tmin, tlen=args.tlen,
-                                                                      picks=['eeg', 'eog'])
+                                                                      picks=['eeg', 'eog'],)
+                                                                      # preprocessings=[EApreprocessor()])
     return loaders
 
 
@@ -65,18 +68,23 @@ if __name__ == '__main__':
 
     for i, subject in enumerate(DATASET.subjects()):
         training, validation, test = all_subjects_split(subject, DATASET.subjects()[i - 1], loaders)
-        training = training.shuffle(6000).batch(60, drop_remainder=True)
+        training = training.shuffle(6000).batch(16, drop_remainder=True)
 
         validation = validation.batch(32)
         test = test.batch(32)
 
         # model = DenseTCNN(targets=4, channels=25, samples_t=int(250*args.tlen))
         # model = ShallowConvNet(4, Chans=25, Samples=int(250*args.tlen))
-        model = SCNN(targets=4, channels=25, samples=int(250*args.tlen))
+        model = DenseSCNN(targets=4, channels=25, samples=int(250 * args.tlen))
+        # model = SCNN(targets=4, channels=25, samples=int(250 * args.tlen))
         model.summary()
-        model.compile(optimizer=RAdamOptimizer(learning_rate=1e-3),
+        model.compile(optimizer=RAdamOptimizer(learning_rate=1e-3, weight_decay=1e-2),
                       loss=keras.losses.SparseCategoricalCrossentropy(),
                       metrics=['accuracy'],)
 
-        model.fit(x=training, validation_data=validation, epochs=40,)
+        model.fit(x=training, validation_data=validation, epochs=100,)
                   # callbacks=[keras.callbacks.LearningRateScheduler(lambda e, r: r if e % 10 else e / 10)])
+
+        model.evaluate(test)
+
+        break

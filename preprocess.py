@@ -43,11 +43,9 @@ class EApreprocessor(Preprocessing):
     def __init__(self):
         self.reference_matrix = None
 
-    def __call__(self, epochs: mne.epochs, *args, **kwargs):
-        data = epochs.get_data()
-        for epoch in data:
-            self.reference_matrix += tf.matmul(epoch, epoch, transpose_b=True)
-        self.reference_matrix = self.reference_matrix / len(data)
+    def __call__(self, epochs: mne.Epochs, *args, **kwargs):
+        data = epochs.get_data().astype(np.float32)
+        self.reference_matrix = tf.reduce_mean(tf.matmul(data, data, transpose_b=True), axis=0)
         self.reference_matrix = tf.constant(tf.linalg.inv(tf.linalg.sqrtm(self.reference_matrix)), dtype=tf.float32)
 
     def get_transform(self):

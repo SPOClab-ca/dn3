@@ -140,7 +140,7 @@ class AttentionLSTMIn(keras.layers.LSTM):
         return super(AttentionLSTMIn, self).step(inputs, states)
 
 
-def scnn_spatial_filter(x, filters, depth, do_rate=0, activation=ReLU, batch_norm=True, residual='dense',
+def scnn_spatial_filter(x, filters, depth, do_rate=0, activation=LeakyReLU, batch_norm=True, residual='dense',
                         bottleneck=4, data_format='channels_first'):
     """
     Creates a deep convolutional spatial filter without temporal aspect
@@ -162,50 +162,99 @@ def scnn_spatial_filter(x, filters, depth, do_rate=0, activation=ReLU, batch_nor
     """
     channels = x.shape[1]
     kernels = [(channels // depth, 1) for _ in range(depth - 1)]
-    kernels += [(channels - sum(x[1] for x in kernels) + depth - 1, 1)]
+    kernels += [(channels - sum(x[0] for x in kernels) + depth - 1, 1)]
     inp = x
+    skip_initial = len(x.shape) == 3
+    if skip_initial:
+        x = ExpandLayer(axis=1)(x)
+
     for i in range(depth):
         l_begin = x
-        x = ExpandLayer(axis=1)(x)
-        if batch_norm:
-            x = BatchNormalization(axis=1 if data_format == 'channels_first' else -1)(x)
-        x = activation()(x)
-        x = Conv2D(filters * bottleneck, (channels + filters*i, 1), padding='valid', data_format=data_format)(x)
-        x = SqueezeLayer(axis=2)(x)
+        if not skip_initial:
+            if batch_norm:
+                x = BatchNormalization(axis=1 if data_format == 'channels_first' else -1)(x)
+            x = activation()(x)
+        skip_initial = False
+        if isinstance(residual, str) and residual.lower() == 'dense':
+            x = Conv2D(int(filters * bottleneck), (channels, 1), padding='same', data_format=data_format)(x)
+        else:
+            x = Conv2D(int(filters * bottleneck), kernels[i], padding='valid', data_format=data_format)(x)
 
-        if batch_norm:
-            x = BatchNormalization(axis=1 if data_format == 'channels_first' else -1)(x)
-        x = activation()(x)
-        x = Conv1D(filters, 1, data_format=data_format)(x)
+        if bottleneck != 1:
+            if batch_norm:
+                x = BatchNormalization(axis=1 if data_format == 'channels_first' else -1)(x)
+            x = activation()(x)
+            x = Conv2D(filters, 1, data_format=data_format)(x)
 
-        x = SpatialDropout1D(do_rate)(x)
-        if not isinstance(residual, str):
-            pass
-        elif residual.lower() == 'dense':
+        x = SpatialDropout2D(do_rate, data_format=data_format)(x)
+        if residual.lower() == 'dense':
             x = Concatenate(axis=1)([x, l_begin])
         elif residual.lower() == 'layerwise':
-            x = Add()([x, Conv1D(filters, 1, data_format=data_format)(inp)])
+            x = Add()([x, Conv2D(filters, 1, data_format=data_format)(inp)])
+
     if residual is not None and residual.lower() == 'netwise':
-        x = Add()([x, Conv1D(filters, 1, data_format=data_format)(inp)])
+        x = Add()([x, Conv2D(filters, 1, data_format=data_format)(ExpandLayer(axis=2)(inp))])
+    if 1 in x.shape:
+        x = SqueezeLayer(axis=2)(x)
     return x
 
 
-def scnn_temporal_filter(x, growth, depth, t_len, dropout=0., activation=ReLU, data_format='channels_first',
-                         bottleneck=4):
-    x = ExpandLayer(axis=1)(x)
+def scnn_temporal_filter(x, filters, depth, t_len, dropout=0., activation=LeakyReLU, data_format='channels_first',
+                         residual='dense', bottleneck=1.25):
+    """
+    Creates a deep convolutional temporal feature extractor without spatial aspect
+    Parameters
+    ----------
+    x: The input tensor, of shape (batch, channels, temporal)
+    filters: The number of filters per layer, if residual is set to 'dense', then this is the growth rate.
+    depth: The number of layers
+    do_rate: Dropout rate per layer
+    activation: Activation at each layer
+    residual: One of ['layerwise', 'netwise', 'dense'] or None. Layerwise adds a residual connection from the input
+              (through 1x1 convolutions) to the end of each layer. Dense is like densenet, concatenating previous
+              filters at each step. Netwise adds one residual from start to end. None ignores.
+    bottleneck: Inspired by densenet, this is the factor of the inflated representation at each layer that is then
+                compressed before the next layer.
+
+    Returns
+    -------
+    Output tensor of shape (batch, filters, temporal)
+    """
+    inp = x
     for i in range(depth):
         l_start = x
+
         x = BatchNormalization(axis=1 if data_format == 'channels_first' else -1)(x)
         x = activation()(x)
-        x = Conv2D(growth * bottleneck, (1, t_len), dilation_rate=(1, depth-i), padding='same',
+        x = Conv2D(int(filters*bottleneck), (1, t_len), dilation_rate=(1, depth-i), padding='same',
                    data_format=data_format)(x)
 
-        x = BatchNormalization(axis=1 if data_format == 'channels_first' else -1)(x)
-        x = activation()(x)
-        x = Conv2D(growth, 1, padding='same', data_format=data_format)(x)
+        if bottleneck != 1:
+            x = BatchNormalization(axis=1 if data_format == 'channels_first' else -1)(x)
+            x = activation()(x)
+            x = Conv2D(filters, 1, padding='same', data_format=data_format)(x)
 
-        x = SpatialDropout2D(dropout)(x)
-        x = Concatenate(axis=1)([x, l_start])
+        x = SpatialDropout2D(dropout, data_format=data_format)(x)
+        if not isinstance(residual, str):
+            pass
+        elif residual.lower() == 'dense':
+            x = Concatenate(axis=1)([x, l_start])
+        elif residual.lower() == 'layerwise':
+            x = Add()([x, Conv2D(filters, 1, data_format=data_format)(l_start)])
+    if isinstance(residual, str) and residual.lower() == 'netwise':
+        x = Add()([x, Conv2D(filters, 1, data_format=data_format)(inp)])
+    return x
+
+
+def scnn_transition(x, transitions=(1, 3, 27), pooling=3, data_format='channels_first', activation=LeakyReLU):
+    # x = Reshape((x.shape[1] * x.shape[2], x.shape[3]))(x)
+    def transition(t_len):
+        q = BatchNormalization(axis=1 if data_format == 'channels_first' else -1)(x)
+        q = activation()(q)
+        q = Conv2D(int(x.shape[1] / len(transitions)), (1, t_len), data_format=data_format, padding='same')(q)
+        return q
+    x = Concatenate(axis=1 if data_format == 'channels_first' else -1)([transition(t) for t in transitions])
+    x = AveragePooling2D((1, pooling), data_format=data_format)(x)
     return x
 
 

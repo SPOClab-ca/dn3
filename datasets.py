@@ -75,3 +75,28 @@ class BNCI2014001(DatasetInterface, datasets.BNCI2014001):
     #
     #     return epoched if combined is None else combined
 
+
+class PhysioNetMMI(DatasetInterface, datasets.PhysionetMI):
+    """
+
+    """
+
+    def __init__(self, imagined=True, executed=False, location=None, lazy_load=True):
+        # TODO load raws without preloading
+        datasets.PhysionetMI.__init__(self, imagined=imagined, executed=executed)
+        # ds.download(path=location)
+        self.raw_data = self.get_data()
+        self._sessions = [list(self.raw_data[x].keys()) for x in self.raw_data]
+        self._runs = [list(self.raw_data[x][y].keys()) for x in self.raw_data for y in self.raw_data[x]]
+
+    def _load_one_run(self, subject, run):
+        super()._load_one_run(subject, run, preload=False)
+
+    def subjects(self):
+        return self.subject_list
+
+    def sessions(self):
+        return self._sessions
+
+    def runs(self):
+        return self._runs
