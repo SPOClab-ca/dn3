@@ -1,5 +1,4 @@
 import tensorflow as tf
-import mne
 import numpy as np
 from transforms import *
 

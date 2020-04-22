@@ -1,7 +1,7 @@
 import unittest
 import numpy as np
 import tensorflow as tf
-from dataloaders import EpochsDataLoader
+from data import EpochsDataLoader
 from transforms import LabelSmoothing, Mixup
 from tests.testDataloaders import create_dummy_raw
 

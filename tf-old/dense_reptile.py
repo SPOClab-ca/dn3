@@ -3,13 +3,12 @@ import copy
 import argparse
 import tqdm
 
-from models import DenseTCNN, ShallowConvNet, ShallowFBCSP, DenseSCNN
+from models import DenseSCNN
 from datasets import BNCI2014001
-from dataloaders import EpochsDataLoader, labelled_dataset_concat
+from data import EpochsDataLoader
 from metaopt import Reptile
 from utils import dataset_concat
 from tensorflow import keras
-import tensorflow as tf
 
 DATASET = BNCI2014001()
 

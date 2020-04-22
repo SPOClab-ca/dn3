@@ -1,4 +1,4 @@
-from dataloaders import *
+from data import *
 from transforms import *
 from models import *
 

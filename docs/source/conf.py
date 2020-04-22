@@ -18,7 +18,7 @@
 # -- Project information -----------------------------------------------------
 
 project = 'Deep Neurophysiology Toolbox (DNPT)'
-copyright = '2019, Demetres Kostas'
+copyright = '2020, Demetres Kostas'
 author = 'Demetres Kostas'
 
 # The full version, including alpha/beta/rc tags

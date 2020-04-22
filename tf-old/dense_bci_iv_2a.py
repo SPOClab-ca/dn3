@@ -5,12 +5,10 @@ import argparse
 from tensorflow import keras
 from keras_radam.training import RAdamOptimizer
 
-from models import DenseTCNN, ShallowConvNet, ShallowFBCSP, DenseSCNN, SCNN
-from datasets import BNCI2014001, PhysioNetMMI
-from dataloaders import EpochsDataLoader, labelled_dataset_concat
-from preprocess import EApreprocessor
-from utils import dataset_concat, CosineScheduleLR
-from transforms import LabelSmoothing, Mixup, OneHotLabels
+from models import DenseSCNN
+from datasets import BNCI2014001
+from data import EpochsDataLoader
+from utils import dataset_concat
 
 DATASET = BNCI2014001()
 # DATASET = PhysioNetMMI()

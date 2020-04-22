@@ -1,6 +1,3 @@
-import copy
-import mne
-import dataloaders
 from moabb import datasets
 
 
