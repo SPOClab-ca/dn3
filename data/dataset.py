@@ -8,7 +8,7 @@ from .utils import min_max_normalize as _min_max_normalize
 
 from abc import ABC
 from collections import OrderedDict
-from collections.abc import Iterable
+from collections.abc import Iterable, Sized
 from torch.utils.data import Dataset as TorchDataset
 from torch.utils.data import ConcatDataset
 
@@ -34,13 +34,9 @@ class DNPTDataset(TorchDataset):
         ----------
         transform : BaseTransform
                     For each item retrieved by __getitem__, transform is called to modify that item.
-        Returns
-        -------
-        The number of transforms currently associated with this dataset
         """
         if isinstance(transform, BaseTransform):
             self._transforms.append(transform)
-        return len(self._transforms)
 
     def clear_transforms(self):
         self._transforms = list()
@@ -192,7 +188,7 @@ class EpochTorchRecording(_Recording):
             self.add_transform(preprocessor.get_transform())
 
 
-class Thinker(DNPTDataset):
+class Thinker(DNPTDataset, ConcatDataset):
     """
     Collects multiple recordings of the same person, intended to be of the same task, at different times or conditions.
     """
@@ -210,7 +206,7 @@ class Thinker(DNPTDataset):
                    Label to be used for the thinker. If set to "auto" (default), will automatically pick the person_id
                    using the most common person_id in the recordings.
         """
-        super().__init__()
+        DNPTDataset.__init__(self)
         if isinstance(sessions, Iterable):
             self.sessions = OrderedDict()
             for r in sessions:
@@ -227,21 +223,34 @@ class Thinker(DNPTDataset):
         for recording in [r for sess in self.sessions.values() for r in sess]:
             recording.person_id = person_id
 
+        ConcatDataset.__init__(self, self.sessions)
+
     def __add__(self, recording):
         assert isinstance(recording, _Recording)
         if recording.session_id in self.sessions.keys():
-            self.sessions[recording.session_id] += [recording]
+            self.sessions[recording.session_id] += recording
         else:
-            self.sessions[recording.session_id] = [recording]
+            self.sessions[recording.session_id] = recording
 
     def __getitem__(self, item):
-        pass
+        ConcatDataset.__getitem__(self, item)
 
     def __len__(self):
-        return sum(len(s) for s in self.sessions)
+        ConcatDataset.__len__(self)
+
+    def split(self, training_sess_ids=None, validation_sess_ids=None, testing_sess_ids=None, split=(0.5, 0.25, 0.25)):
+        pass
 
     def preprocess(self, preprocessor: Preprocessor, apply_transform=True):
         pass
+
+    def clear_transforms(self):
+        for s in self.sessions.values():
+            s.clear_transforms()
+
+    def add_transform(self, transform):
+        for s in self.sessions.values():
+            s.add_transform(transform)
 
 
 class Dataset(DNPTDataset):
@@ -259,36 +268,64 @@ class Dataset(DNPTDataset):
         """
         Collects recordings from multiple people, intended to be of the same task, at different times or
         conditions.
+        Optionally, can specify whether to return person, session, dataset and task labels. Person and session ids will
+        be converted to an enumerated set of integer ids, rather than those provided during creation of those datasets
+        in order to make a minimal set of labels. e.g. if there are 3 thinkers, {A01, A02, and A05}, specifying
+        `return_person_id` will return an additional tensor with 0 for A01, 1 for A02 and 2 for A05 respectively. To
+        recover any original identifier, get_thinkers() returns a list of the original thinker ids such that the
+        enumerated offset recovers the original identity. Extending the example above:
+        ``self.get_thinkers()[1] == "A02"``
+
+        .. warning:: The enumerated ids above are only ever used in the construction of model input tensors,
+                     otherwise, anywhere where ids are required as API, the *human readable* version is uesd
+                     (e.g. in our example above A02)
         Parameters
         ----------
         thinkers : (iterable, dict)
                    Either a sequence of `Thinker`, or a mapping of person_id to `Thinker`. If the latter, id's are
                    overwritten by the mapping id's.
-        dataset_id : (int, str)
-                     An identifier associated with data from the entire dataset
-        task_id : (int, str)
-                  An identifier associated with data from the entire dataset, and potentially others of the same task
-        return_person_id :
-                 Whether to
+        dataset_id : int
+                     An identifier associated with data from the entire dataset. Unlike person and sessions, this should
+                     simply be an integer for the sake of returning labels that can functionally be used for learning.
+        task_id : int
+                  An identifier associated with data from the entire dataset, and potentially others of the same task.
+                  Like dataset_idm this should simply be an integer.
+        return_person_id : bool
+                           Whether to return (enumerated - see above) person_ids with the data itself.
+        return_session_id : bool
+                           Whether to return (enumerated - see above) session_ids with the data itself.
+        return_dataset_id : bool
+                           Whether to return the dataset_id with the data itself.
+        return_task_id : bool
+                           Whether to return the dataset_id with the data itself.
         """
         super().__init__()
         if isinstance(thinkers, Iterable):
-            self.thinkers = dict()
+            self._thinkers = OrderedDict()
             for t in thinkers:
                 self.__add__(t)
 
         elif isinstance(thinkers, dict):
-            self.thinkers = thinkers
+            self._thinkers = OrderedDict(thinkers)
         else:
             raise TypeError("Thinkers must be iterable or already processed dict.")
-        self.thinkers = thinkers
+        self._thinkers = thinkers
+        self._sessions = list()
+
+        self.dataset_id = dataset_id
+        self.task_id = task_id
+
+        self.return_person_id = return_person_id
+        self.return_session_id = return_session_id
+        self.return_task_id = return_task_id
+        self.return_dataset_id = return_dataset_id
 
     def __add__(self, thinker):
         assert isinstance(thinker, Thinker)
-        if thinker.person_id in self.thinkers.keys():
-            self.thinkers[thinker.person_id] += thinker
+        if thinker.person_id in self._thinkers.keys():
+            self._thinkers[thinker.person_id] += thinker
         else:
-            self.thinkers[thinker.person_id] = thinker
+            self._thinkers[thinker.person_id] = thinker
 
     @property
     def sfreq(self):
@@ -299,29 +336,113 @@ class Dataset(DNPTDataset):
         raise NotImplementedError()
 
     def get_thinkers(self):
-        pass
+        return list(self._thinkers.keys())
 
     def get_sessions(self):
-        pass
+        return self._sessions
 
     def __len__(self):
-        return sum(len(r) for r in self.recordings)
+        return sum(len(r) for r in self._sessions)
 
-    def thinker_specific(self, training_sessions=None, validation_sessions=None, testing_sessions=None,
-                         split=(0.5, 0.25, 0.25)):
-        pass
+    def _make_like_me(self, people: list):
+        Dataset({p: self._thinkers[p] for p in people}, self.dataset_id, self.task_id, self.return_person_id,
+                self.return_session_id, self.return_dataset_id, self.return_task_id)
 
-    def loso(self, validation_id=None, test_id=None):
-        pass
+    def _generate_splits(self, validation, testing):
+        for val, test in zip(validation, testing):
+            training = list(self._thinkers.keys())
+            for v in val:
+                training.remove(v)
+            for t in test:
+                training.remove(t)
+            training = self._make_like_me(training)
+            validating = self._make_like_me(val) if len(val) > 1 else self._thinkers[val[0]]
+            testing = self._make_like_me(test) if len(test) > 1 else self._thinkers[test[0]]
+            yield training, validating, testing
 
-    def lmso(self, folds=10, split=None):
-        pass
+    def loso(self, validation_person_id=None, test_person_id=None):
+        """
+        This *generates* a "Leave-one-subject-out" (LOSO) split. Tests each person one-by-one, and validates on the
+        previous (the first is validated with the last).
+        Parameters
+        ----------
+        validation_person_id : (int, str, list, optional)
+                               If specified, and corresponds to one of the person_ids in this dataset, the loso cross
+                               validation will consistently generate this thinker as `validation`. If *list*, must
+                               be the same length as `test_person_id`, say a length N. If so, will yield N
+                               each in sequence, and use remainder for test.
+        test_person_id : (int, str, list, optional)
+                         Same as `validation_person_id`, but for testing. However, testing may be an list when
+                         validation is a single value. Thus if testing is N ids, will yield N values, with a consistent
+                         single validation person.
 
-    def apply_preprocessor(self, apply_transform=True):
-        pass
+        Yields
+        -------
+        training : Dataset
+                   Another dataset that represents the training set
+        validation : Thinker
+                     The validation thinker
+        test : Thinker
+               The test thinker
+        """
+        if isinstance(validation_person_id, list):
+            if not isinstance(test_person_id, list) or len(test_person_id) != len(validation_person_id):
+                raise TypeError("Test ids must be same length iterable as validation ids.")
+            yield from self._generate_splits([[v] for v in validation_person_id], [[v] for v in test_person_id])
 
-    def add_transform(self, transform):
-        pass
+        if isinstance(test_person_id, list):
+            test_person_id = [[t] for t in test_person_id]
+        elif test_person_id is not None:
+            assert isinstance(validation_person_id, (int, str))
+            test_person_id = [[test_person_id] for _ in range(len(self.get_thinkers())-1)]
+        else:
+            test_person_id = [[t] for t in self.get_thinkers()]
+
+        if validation_person_id is not None:
+            validation_person_id = [[validation_person_id] for _ in range(len(test_person_id))]
+        else:
+            validation_person_id = [self.get_thinkers()[self.get_thinkers().index(t[0])-1] for t in test_person_id]
+
+        yield from self._generate_splits(validation_person_id, test_person_id)
+
+    def lmso(self, folds=10, splits=None):
+        """
+        This *generates* a "Leave-multiple-subject-out" (LMSO) split. In other words X-fold cross-validation, with
+        boundaries enforced at thinkers (each person's data is not split into different folds).
+        Parameters
+        ----------
+        folds : int
+                If this is specified and `splits` is None, will split the subjects into this many folds, and then use
+                each fold as a test set in turn (and the previous fold - starting with the last - as validation).
+        splits : list
+                If this is not None, folds is ignored. Instead, this should be a list of tuples/lists that represent
+                each fold. Each element of the list then has two sub-lists, first the ids for validation and second
+                the ids for testing.
+
+        Yields
+        -------
+        training : Dataset
+                   Another dataset that represents the training set
+        validation : Dataset
+                     The validation people as a dataset
+        test : Thinker
+               The test people as a dataset
+        """
+        if splits is None:
+            folds = [list(x) for x in np.array_split(self.get_thinkers(), folds)]
+            splits = [(folds[i-1], folds[i]) for i in range(len(folds))]
+        yield from self._generate_splits(*zip(*splits))
+
+    def apply_preprocessor(self, preprocessor: Preprocessor, apply_transform=True, thinkers=None, sessions=None):
+        for thinker in self._thinkers.values():
+            thinker.apply_preprocessor(preprocessor)
+        if apply_transform:
+            self.add_transform(preprocessor.get_transform())
+
+    def add_transform(self, transform, thinkers=None, sessions=None):
+        for thinker in self._thinkers.values():
+            thinker.add_transform(transform)
 
     def clear_transforms(self):
-        pass
+        for thinker in self._thinkers.values():
+            thinker.clear_transforms()
