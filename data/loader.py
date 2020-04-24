@@ -13,10 +13,10 @@ class DNPTLoader(DataLoader):
 
      Parameters
      ----------
-    *recordings :
-               The recordings from which to load data.
-    transforms : (iterable)
-                 The transforms to be applied after fetching each batch.
+    *thinkers : Thinker
+                The thinkers from which to load data.
+    batch_transforms : (Iterable)
+                 The transforms to be applied to each fetched batch.
     batch_size : int, optional
                  How many samples per batch to load (default: ``1``).
     shuffle : bool, optional

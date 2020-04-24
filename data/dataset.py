@@ -2,24 +2,67 @@ import mne
 import torch
 import numpy as np
 
-from .config import DatasetConfig
+from transform.preprocess import Preprocessor
+from transform.transform import BaseTransform
 from .utils import min_max_normalize as _min_max_normalize
+
+from abc import ABC
+from collections import OrderedDict
+from collections.abc import Iterable
 from torch.utils.data import Dataset as TorchDataset
 from torch.utils.data import ConcatDataset
 
 
-class TorchRecording(TorchDataset):
+class DNPTDataset(TorchDataset):
     """
-    Base class for any mne dataloader being bridged into an iterable pytorch-compatible dataset
+    Base class for all DNPT objects that can be used as pytorch-compatible datasets. Ensuring that DNPT extension is
+    conformed to.
     """
-    def __init__(self, raw: mne.io.Raw, session_id, person_id):
-        self.sfreq = raw.info['sfreq']
+    def __init__(self):
+        self._transforms = list()
+
+    def __getitem__(self, item):
+        raise NotImplementedError()
+
+    def __len__(self):
+        raise NotImplementedError
+
+    def add_transform(self, transform):
+        """
+        Add a transformation that is applied to every fetched item in the dataset
+        Parameters
+        ----------
+        transform : BaseTransform
+                    For each item retrieved by __getitem__, transform is called to modify that item.
+        Returns
+        -------
+        The number of transforms currently associated with this dataset
+        """
+        if isinstance(transform, BaseTransform):
+            self._transforms.append(transform)
+        return len(self._transforms)
+
+    def clear_transforms(self):
+        self._transforms = list()
+
+    def preprocess(self, preprocessor: Preprocessor, apply_transform=True):
+        raise NotImplementedError()
+
+
+class _Recording(DNPTDataset, ABC):
+    """
+    Abstract base class for any supported recording
+    """
+    def __init__(self, info, session_id, person_id):
+        super().__init__()
+        self.info = info
+        self.sfreq = info['sfreq']
         assert self.sfreq is not None
         self.session_id = session_id
         self.person_id = person_id
 
 
-class RawTorchRecording(TorchRecording):
+class RawTorchRecording(_Recording):
     """
     Interface for bridging mne Raw instances as PyTorch compatible "Dataset".
 
@@ -39,6 +82,7 @@ class RawTorchRecording(TorchRecording):
     stride : int
           The number of samples to skip between each starting offset of loaded samples.
     """
+
     def __init__(self, raw: mne.io.Raw, session_id=0, person_id=0, sample_len=512, tlen=None, stride=1, **kwargs):
         """
         Interface for bridging mne Raw instances as PyTorch compatible "Dataset".
@@ -59,13 +103,13 @@ class RawTorchRecording(TorchRecording):
         stride : int
               The number of samples to skip between each starting offset of loaded samples.
         """
-        super().__init__(raw, session_id, person_id)
+        super().__init__(raw.info, session_id, person_id)
         self.raw = raw
         self.stride = stride
         self.max = kwargs.get('max', None)
         self.min = kwargs.get('min', 0)
         self.normalizer = kwargs.get('normalize', _min_max_normalize)
-        self.sample_len = sample_len if tlen is None else int(raw.info['sfreq'] * tlen)
+        self.sample_len = sample_len if tlen is None else int(self.sfreq * tlen)
 
     def __getitem__(self, index):
         index *= self.stride
@@ -75,7 +119,7 @@ class RawTorchRecording(TorchRecording):
         scale = 1 if self.max is None else (x.max() - x.min()) / (self.max - self.min)
         if scale > 1 or np.isnan(scale):
             print('Warning: scale exeeding 1')
-        x = _min_max_normalize(torch.from_numpy(x)).transpose(1, 0)
+        x = _min_max_normalize(torch.from_numpy(x))
         if torch.any(x > 1):
             print("Somehow larger than 1.. {}, index {}".format(self.raw.filenames[0], index))
             raise ValueError()
@@ -85,36 +129,28 @@ class RawTorchRecording(TorchRecording):
             print("Replacing with appropriate random values for now...")
             x = torch.rand_like(x)
 
-        # Construct meta-information
-        pos = index % self.max_positions
-        position_ids = torch.arange(pos, pos+self.seq_len).unsqueeze(-1)
-        next_set = position_ids >= self.max_positions
-        position_ids[next_set] -= self.max_positions
+        for t in self._transforms:
+            x = t(x)
 
-        dataset_ids = torch.ones(x.shape[0], 1).long() * int(self.config['dataset_id'])
-        person_ids = torch.ones(1).long() * int(self.person_id)
-
-        return x, position_ids, dataset_ids, person_ids, self.mapping.sum(dim=0)
+        return x
 
     def __len__(self):
-        return (self.raw.n_times - self.seq_len + int(self.cls_token)) // self.stride
+        return (self.raw.n_times - self.seq_len) // self.stride
+
+    def preprocess(self, preprocessor: Preprocessor, apply_transform=True):
+        self.raw = preprocessor(recording=self)
+        if apply_transform:
+            self.add_transform(preprocessor.get_transform())
 
 
-class EpochTorchRecording(TorchRecording):
+class EpochTorchRecording(_Recording):
 
-    def __init__(self, epochs: mne.Epochs, force_label=None, picks=None, preproccesors=None, normalizer=zscore,
-                 runs=None, train_mode=False):
-        self.mode = train_mode
+    def __init__(self, epochs: mne.Epochs, session_id, person_id, force_label=None, cached=False):
+        super().__init__(epochs, session_id, person_id)
         self.epochs = epochs
         self._t_len = epochs.tmax - epochs.tmin
-        self.loaded_x = [None for _ in range(len(epochs.events))]
-        self.runs = runs
-        self.picks = picks
+        self._cache = [None for _ in range(len(epochs.events))] if cached else None
         self.force_label = force_label if force_label is None else torch.tensor(force_label)
-        self.normalizer = normalizer
-        self.preprocessors = preproccesors if isinstance(preproccesors, (list, tuple)) else [preproccesors]
-        for i, p in enumerate(self.preprocessors):
-            self.preprocessors[i] = p(self.epochs)
 
     @property
     def channels(self):
@@ -123,31 +159,26 @@ class EpochTorchRecording(TorchRecording):
         else:
             return len(self.picks)
 
-    @property
-    def sfreq(self):
-        return self.epochs.info['sfreq']
-
     def __getitem__(self, index):
         ep = self.epochs[index]
-        if self.loaded_x[index] is None:
+
+        if self._cache is None or self._cache[index] is None:
             x = ep.get_data()
             if len(x.shape) != 3 or 0 in x.shape:
-                print("I don't know why: {} index{}/{}".format(self.epochs, index, len(self)))
+                print("I don't know why: {} index{}/{}".format(self.epochs.filename, index, len(self)))
                 print(self.epochs.info['description'])
-                # raise AttributeError()
+                print("Using trial {} in place for now...".format(index-1))
                 return self.__getitem__(index - 1)
-            x = x[0, self.picks, :]
-            for p in self.preprocessors:
-                x = p(x)
             x = torch.from_numpy(self.normalizer(x).astype('float32')).squeeze(0)
-            self.loaded_x[index] = x
+            if self._cache is not None:
+                self._cache[index] = x
         else:
-            x = self.loaded_x[index]
+            x = self._cache[index]
 
         y = torch.from_numpy(ep.events[..., -1]).long() if self.force_label is None else self.force_label
 
-        if self.runs is not None:
-            return x, y, one_hot(torch.tensor(self.runs * index / len(self)).long(), self.runs)
+        for t in self._transforms:
+            x = t(x)
 
         return x, y
 
@@ -155,28 +186,65 @@ class EpochTorchRecording(TorchRecording):
         events = self.epochs.events[:, 0].tolist()
         return len(events)
 
+    def preprocess(self, preprocessor: Preprocessor, apply_transform=True):
+        self.epochs = preprocessor(recording=self)
+        if apply_transform:
+            self.add_transform(preprocessor.get_transform())
 
 
-class Thinker(object):
+class Thinker(DNPTDataset):
     """
     Collects multiple recordings of the same person, intended to be of the same task, at different times or conditions.
     """
-    def __init__(self, recordings, person_id="auto"):
+
+    def __init__(self, sessions, person_id="auto"):
         """
         Collects multiple recordings of the same person, intended to be of the same task, at different times or
         conditions.
         Parameters
         ----------
-        recordings : (iterable, dict)
+        sessions : (iterable, dict)
                    Either a sequence of recordings, or a mapping of session_ids to recordings. If the former, the
                    recording's session_id is preserved. If the
         person_id : (int, str)
                    Label to be used for the thinker. If set to "auto" (default), will automatically pick the person_id
                    using the most common person_id in the recordings.
         """
+        super().__init__()
+        if isinstance(sessions, Iterable):
+            self.sessions = OrderedDict()
+            for r in sessions:
+                self.__add__(r)
+        elif isinstance(sessions, dict):
+            self.sessions = OrderedDict(sessions)
+        else:
+            raise TypeError("Recordings must be iterable or already processed dict.")
+        if person_id == 'auto':
+            ids = [r.person_id for sess in self.sessions.values() for r in sess]
+            person_id = max(set(ids), key=ids.count)
+        self.person_id = person_id
+
+        for recording in [r for sess in self.sessions.values() for r in sess]:
+            recording.person_id = person_id
+
+    def __add__(self, recording):
+        assert isinstance(recording, _Recording)
+        if recording.session_id in self.sessions.keys():
+            self.sessions[recording.session_id] += [recording]
+        else:
+            self.sessions[recording.session_id] = [recording]
+
+    def __getitem__(self, item):
+        pass
+
+    def __len__(self):
+        return sum(len(s) for s in self.sessions)
+
+    def preprocess(self, preprocessor: Preprocessor, apply_transform=True):
+        pass
 
 
-class Dataset(object):
+class Dataset(DNPTDataset):
     """
     Collects thinkers, each of which may collect multiple recording sessions of the same tasks, into a dataset with
     (largely) consistent:
@@ -186,31 +254,41 @@ class Dataset(object):
       - annotation paradigm:
         - consistent event types
     """
-    def __init__(self, *thinkers, **kwargs):
-        self.thinkers = thinkers
-
-    def _init_thinkers(self, mapping=None):
-        if mapping is None:
-
-    @classmethod
-    def from_config(cls, config: DatasetConfig):
+    def __init__(self, thinkers, dataset_id=None, task_id=None, return_person_id=False, return_session_id=False,
+                 return_dataset_id=False, return_task_id=False):
         """
-        This creates a dataset using a config that points to a collection of files in a standard directory layout:
-        Dataset/(*optional - <version>)/<person-id>/<session-id>.{ext}
-        The {ext} supported are: edf/gdf, fif
-
-        See `.config.DatasetConfiguration` for how a configuration is constructed.
+        Collects recordings from multiple people, intended to be of the same task, at different times or
+        conditions.
         Parameters
         ----------
-        config : DatasetConfig
-
-
-        Returns
-        -------
-
+        thinkers : (iterable, dict)
+                   Either a sequence of `Thinker`, or a mapping of person_id to `Thinker`. If the latter, id's are
+                   overwritten by the mapping id's.
+        dataset_id : (int, str)
+                     An identifier associated with data from the entire dataset
+        task_id : (int, str)
+                  An identifier associated with data from the entire dataset, and potentially others of the same task
+        return_person_id :
+                 Whether to
         """
-        # TODO
-        pass
+        super().__init__()
+        if isinstance(thinkers, Iterable):
+            self.thinkers = dict()
+            for t in thinkers:
+                self.__add__(t)
+
+        elif isinstance(thinkers, dict):
+            self.thinkers = thinkers
+        else:
+            raise TypeError("Thinkers must be iterable or already processed dict.")
+        self.thinkers = thinkers
+
+    def __add__(self, thinker):
+        assert isinstance(thinker, Thinker)
+        if thinker.person_id in self.thinkers.keys():
+            self.thinkers[thinker.person_id] += thinker
+        else:
+            self.thinkers[thinker.person_id] = thinker
 
     @property
     def sfreq(self):
@@ -239,13 +317,11 @@ class Dataset(object):
     def lmso(self, folds=10, split=None):
         pass
 
-    def add_preprocessor(self, apply_transform=True):
+    def apply_preprocessor(self, apply_transform=True):
         pass
 
     def add_transform(self, transform):
         pass
 
-
-class MultiDomainDataset(ConcatDataset):
-    pass
-
+    def clear_transforms(self):
+        pass

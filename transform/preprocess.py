@@ -9,7 +9,7 @@ class Preprocessor:
     __call__ method and return None for the transform.
     Or, create a transform that is subsequently added to the execution graph (and performed just before training).
     """
-    def __call__(self, data: mne.epochs, *args, **kwargs):
+    def __call__(self, recording, **kwargs):
         raise NotImplementedError()
 
     def get_transform(self):
