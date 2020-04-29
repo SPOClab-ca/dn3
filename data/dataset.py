@@ -1,10 +1,12 @@
 import mne
 import torch
+import bisect
 import numpy as np
 
 from transform.preprocess import Preprocessor
 from transform.transform import BaseTransform
 from .utils import min_max_normalize as _min_max_normalize
+from .utils import rand_split
 
 from abc import ABC
 from collections import OrderedDict
@@ -57,6 +59,10 @@ class _Recording(DNPTDataset, ABC):
         self.session_id = session_id
         self.person_id = person_id
 
+    def get_all(self):
+        all_recordings = [x for x in self]
+        return [torch.stack(t) for t in zip(*all_recordings)]
+
 
 class RawTorchRecording(_Recording):
     """
@@ -79,7 +85,8 @@ class RawTorchRecording(_Recording):
           The number of samples to skip between each starting offset of loaded samples.
     """
 
-    def __init__(self, raw: mne.io.Raw, session_id=0, person_id=0, sample_len=512, tlen=None, stride=1, **kwargs):
+    def __init__(self, raw: mne.io.Raw, session_id=0, person_id=0, sample_len=512, tlen=None, stride=1,
+                 picks=None, normalizer=_min_max_normalize, **kwargs):
         """
         Interface for bridging mne Raw instances as PyTorch compatible "Dataset".
 
@@ -104,10 +111,14 @@ class RawTorchRecording(_Recording):
         self.stride = stride
         self.max = kwargs.get('max', None)
         self.min = kwargs.get('min', 0)
-        self.normalizer = kwargs.get('normalize', _min_max_normalize)
+        self.normalizer = normalizer
         self.sample_len = sample_len if tlen is None else int(self.sfreq * tlen)
+        self.picks = picks
+        self.__dict__.update(kwargs)
 
     def __getitem__(self, index):
+        if index < 0:
+            index += len(self)
         index *= self.stride
 
         # Get the actual signals
@@ -115,7 +126,7 @@ class RawTorchRecording(_Recording):
         scale = 1 if self.max is None else (x.max() - x.min()) / (self.max - self.min)
         if scale > 1 or np.isnan(scale):
             print('Warning: scale exeeding 1')
-        x = _min_max_normalize(torch.from_numpy(x))
+        x = self.normalizer(torch.from_numpy(x)).float()
         if torch.any(x > 1):
             print("Somehow larger than 1.. {}, index {}".format(self.raw.filenames[0], index))
             raise ValueError()
@@ -131,7 +142,7 @@ class RawTorchRecording(_Recording):
         return x
 
     def __len__(self):
-        return (self.raw.n_times - self.seq_len) // self.stride
+        return (self.raw.n_times - self.sample_len) // self.stride
 
     def preprocess(self, preprocessor: Preprocessor, apply_transform=True):
         self.raw = preprocessor(recording=self)
@@ -141,12 +152,15 @@ class RawTorchRecording(_Recording):
 
 class EpochTorchRecording(_Recording):
 
-    def __init__(self, epochs: mne.Epochs, session_id, person_id, force_label=None, cached=False):
-        super().__init__(epochs, session_id, person_id)
+    def __init__(self, epochs: mne.Epochs, session_id=0, person_id=0, force_label=None, cached=False,
+                 normalizer=_min_max_normalize, picks=None):
+        super().__init__(epochs.info, session_id, person_id)
         self.epochs = epochs
         self._t_len = epochs.tmax - epochs.tmin
         self._cache = [None for _ in range(len(epochs.events))] if cached else None
         self.force_label = force_label if force_label is None else torch.tensor(force_label)
+        self.normalizer = normalizer
+        self.picks = picks
 
     @property
     def channels(self):
@@ -159,13 +173,14 @@ class EpochTorchRecording(_Recording):
         ep = self.epochs[index]
 
         if self._cache is None or self._cache[index] is None:
-            x = ep.get_data()
+            # TODO Could have a speedup if not using ep, but items, but would need to drop bads?
+            x = ep.get_data(picks=self.picks)
             if len(x.shape) != 3 or 0 in x.shape:
                 print("I don't know why: {} index{}/{}".format(self.epochs.filename, index, len(self)))
                 print(self.epochs.info['description'])
                 print("Using trial {} in place for now...".format(index-1))
                 return self.__getitem__(index - 1)
-            x = torch.from_numpy(self.normalizer(x).astype('float32')).squeeze(0)
+            x = self.normalizer(torch.from_numpy(x.squeeze(0))).float()
             if self._cache is not None:
                 self._cache[index] = x
         else:
@@ -179,8 +194,7 @@ class EpochTorchRecording(_Recording):
         return x, y
 
     def __len__(self):
-        events = self.epochs.events[:, 0].tolist()
-        return len(events)
+        return len(self.epochs.events)
 
     def preprocess(self, preprocessor: Preprocessor, apply_transform=True):
         self.epochs = preprocessor(recording=self)
@@ -193,7 +207,7 @@ class Thinker(DNPTDataset, ConcatDataset):
     Collects multiple recordings of the same person, intended to be of the same task, at different times or conditions.
     """
 
-    def __init__(self, sessions, person_id="auto"):
+    def __init__(self, sessions, person_id="auto", return_session_id=False):
         """
         Collects multiple recordings of the same person, intended to be of the same task, at different times or
         conditions.
@@ -205,9 +219,11 @@ class Thinker(DNPTDataset, ConcatDataset):
         person_id : (int, str)
                    Label to be used for the thinker. If set to "auto" (default), will automatically pick the person_id
                    using the most common person_id in the recordings.
+        return_session_id : bool
+                           Whether to return (enumerated - see `Dataset`) session_ids with the data itself.
         """
         DNPTDataset.__init__(self)
-        if isinstance(sessions, Iterable):
+        if not isinstance(sessions, dict) and isinstance(sessions, Iterable):
             self.sessions = OrderedDict()
             for r in sessions:
                 self.__add__(r)
@@ -216,33 +232,128 @@ class Thinker(DNPTDataset, ConcatDataset):
         else:
             raise TypeError("Recordings must be iterable or already processed dict.")
         if person_id == 'auto':
-            ids = [r.person_id for sess in self.sessions.values() for r in sess]
+            ids = [sess.person_id for sess in self.sessions.values()]
             person_id = max(set(ids), key=ids.count)
         self.person_id = person_id
 
-        for recording in [r for sess in self.sessions.values() for r in sess]:
-            recording.person_id = person_id
+        for sess in self.sessions.values():
+            sess.person_id = person_id
 
-        ConcatDataset.__init__(self, self.sessions)
+        self._reset_dataset()
+        self.return_session_id = return_session_id
 
-    def __add__(self, recording):
-        assert isinstance(recording, _Recording)
-        if recording.session_id in self.sessions.keys():
-            self.sessions[recording.session_id] += recording
+    def _reset_dataset(self):
+        ConcatDataset.__init__(self, self.sessions.values())
+
+    def __add__(self, sessions):
+        assert isinstance(sessions, (_Recording, Thinker))
+        if isinstance(sessions, Thinker):
+            if sessions.person_id != self.person_id:
+                print("Person IDs don't match: adding {} to {}. Assuming latter...")
+            sessions = sessions.sessions
+
+        if sessions.session_id in self.sessions.keys():
+            self.sessions[sessions.session_id] += sessions
         else:
-            self.sessions[recording.session_id] = recording
+            self.sessions[sessions.session_id] = sessions
 
-    def __getitem__(self, item):
-        ConcatDataset.__getitem__(self, item)
+        self._reset_dataset()
+
+    def __getitem__(self, item, return_id=False):
+        x = ConcatDataset.__getitem__(self, item)
+        if self.return_session_id:
+            dataset_idx = torch.tensor(bisect.bisect_right(self.cumulative_sizes, item))
+            if isinstance(x, Iterable):
+                x = list(x)
+                x.insert(-1, dataset_idx)
+            else:
+                x = [x, dataset_idx]
+        return x
 
     def __len__(self):
-        ConcatDataset.__len__(self)
+        return ConcatDataset.__len__(self)
 
-    def split(self, training_sess_ids=None, validation_sess_ids=None, testing_sess_ids=None, split=(0.5, 0.25, 0.25)):
-        pass
+    def split(self, training_sess_ids=None, validation_sess_ids=None, testing_sess_ids=None, test_frac=0.25,
+              validation_frac=0.25):
+        """
+        Split the thinker's data into training, validation and testing sets.
+        Parameters
+        ----------
+        test_frac : float
+                    Proportion of the total data to use for testing, this is overridden by `testing_sess_ids`.
+        validation_frac : float
+                          Proportion of the data remaining - after removing test proportion/sessions - to use as
+                          validation data. Likewise, `validation_sess_ids` overrides this value.
+        training_sess_ids : : (Iterable, None)
+                            The session ids to be explicitly used for training.
+        validation_sess_ids : (Iterable, None)
+                            The session ids to be explicitly used for validation.
+        testing_sess_ids : (Iterable, None)
+                           The session ids to be explicitly used for testing.
 
-    def preprocess(self, preprocessor: Preprocessor, apply_transform=True):
-        pass
+        Returns
+        -------
+        training : DNPTDataset
+                   The training dataset
+        validation : DNPTDataset
+                   The validation dataset
+        testing : DNPTDataset
+                   The testing dataset
+        """
+        training_sess_ids = set(training_sess_ids) if training_sess_ids is not None else set()
+        validation_sess_ids = set(validation_sess_ids) if validation_sess_ids is not None else set()
+        testing_sess_ids = set(testing_sess_ids) if testing_sess_ids is not None else set()
+        duplicated_ids = training_sess_ids.intersection(validation_sess_ids).intersection(testing_sess_ids)
+        if len(duplicated_ids) > 0:
+            print("Ids duplicated across train/val/test split: {}".format(duplicated_ids))
+        use_sessions = self.sessions.copy()
+        training, validating, testing = (
+            ConcatDataset([use_sessions.pop(_id) for _id in ids]) if len(ids) else None
+            for ids in (training_sess_ids, validation_sess_ids, testing_sess_ids)
+        )
+        if training is not None and validating is not None and testing is not None:
+            if len(use_sessions) > 0:
+                print("Warning: sessions specified do not span all sessions. Skipping {} sessions.".format(
+                    len(use_sessions)))
+                return training, validating, testing
+
+        remainder = ConcatDataset(use_sessions.values())
+        if testing is None:
+            assert test_frac is not None and 0 < test_frac < 1
+            remainder, testing = rand_split(remainder, frac=test_frac)
+        if validating is None:
+            assert validation_frac is not None and 0 <= test_frac < 1
+            remainder, validating = rand_split(remainder, frac=validation_frac)
+
+        training = remainder if training is None else training
+
+        return training, validating, testing
+
+    def preprocess(self, preprocessor: Preprocessor, apply_transform=True, sessions=None):
+        """
+        Applies a preprocessor to the dataset
+        Parameters
+        ----------
+        preprocessor : Preprocessor
+                       A preprocessor to be applied
+        sessions : (None, Iterable)
+                   If specified (default is None), the sessions to use for preprocessing calculation
+        apply_transform : bool
+                          Whether to apply the transform to this dataset (all sessions, not just those specified for
+                          preprocessing) after preprocessing them. Exclusive application to select sessions can be
+                          done using the return value and a separate call to `add_transform` with the same `sessions`
+                          list.
+        Returns
+        ---------
+        preprocessor : Preprocessor
+                       The preprocessor after application to all relevant thinkers
+        """
+        sessions = list(self.sessions.values()) if sessions is None else sessions
+        for session in sessions:
+            session.preprocess(preprocessor)
+        if apply_transform:
+            self.add_transform(preprocessor.get_transform())
+        return preprocessor
 
     def clear_transforms(self):
         for s in self.sessions.values():
@@ -253,7 +364,7 @@ class Thinker(DNPTDataset, ConcatDataset):
             s.add_transform(transform)
 
 
-class Dataset(DNPTDataset):
+class Dataset(DNPTDataset, ConcatDataset):
     """
     Collects thinkers, each of which may collect multiple recording sessions of the same tasks, into a dataset with
     (largely) consistent:
@@ -310,22 +421,72 @@ class Dataset(DNPTDataset):
         else:
             raise TypeError("Thinkers must be iterable or already processed dict.")
         self._thinkers = thinkers
-        self._sessions = list()
 
-        self.dataset_id = dataset_id
-        self.task_id = task_id
+        self.dataset_id = torch.tensor(dataset_id)
+        self.task_id = torch.tensor(task_id)
 
         self.return_person_id = return_person_id
         self.return_session_id = return_session_id
         self.return_task_id = return_task_id
         self.return_dataset_id = return_dataset_id
 
+    def _reset_dataset(self):
+        ConcatDataset.__init__(self, self._thinkers.values())
+
     def __add__(self, thinker):
         assert isinstance(thinker, Thinker)
         if thinker.person_id in self._thinkers.keys():
+            print("Warning. Person {} already in dataset... Merging sessions.".format(thinker.person_id))
             self._thinkers[thinker.person_id] += thinker
         else:
             self._thinkers[thinker.person_id] = thinker
+        self._reset_dataset()
+
+    def __getitem__(self, item):
+        person_id = bisect.bisect_right(self.cumulative_sizes, item)
+        x = self.get_thinkers()[person_id].__getitem__(item - self.cumulative_sizes[person_id - 1],
+                                                        self.return_session_id)
+        if self.return_person_id:
+            person_id = torch.tensor(person_id)
+            if isinstance(x, Iterable):
+                x = list(x)
+                x.insert(1, person_id)
+            else:
+                x = [x, person_id]
+
+        if self.return_task_id:
+            x.insert(1, self.task_id)
+
+        if self.return_dataset_id:
+            x.insert(1, self.dataset_id)
+
+        return x
+
+    def preprocess(self, preprocessor: Preprocessor, apply_transform=True, thinkers=None):
+        """
+        Applies a preprocessor to the dataset
+        Parameters
+        ----------
+        preprocessor : Preprocessor
+                       A preprocessor to be applied
+        thinkers : (None, Iterable)
+                   If specified (default is None), the thinkers to use for preprocessing calculation
+        apply_transform : bool
+                          Whether to apply the transform to this dataset (all thinkers, not just those specified for
+                          preprocessing) after preprocessing them. Exclusive application to specific thinkers can be
+                          done using the return value and a separate call to `add_transform` with the same `thinkers`
+                          list.
+        Returns
+        ---------
+        preprocessor : Preprocessor
+                       The preprocessor after application to all relevant thinkers
+        """
+        thinkers = self.get_thinkers() if thinkers is None else thinkers
+        for thinker in thinkers:
+            thinker.preprocess(preprocessor)
+        if apply_transform:
+            self.add_transform(preprocessor.get_transform())
+        return preprocessor
 
     @property
     def sfreq(self):
@@ -338,11 +499,8 @@ class Dataset(DNPTDataset):
     def get_thinkers(self):
         return list(self._thinkers.keys())
 
-    def get_sessions(self):
-        return self._sessions
-
     def __len__(self):
-        return sum(len(r) for r in self._sessions)
+        return self.cumulative_sizes[-1]
 
     def _make_like_me(self, people: list):
         Dataset({p: self._thinkers[p] for p in people}, self.dataset_id, self.task_id, self.return_person_id,
@@ -433,13 +591,7 @@ class Dataset(DNPTDataset):
             splits = [(folds[i-1], folds[i]) for i in range(len(folds))]
         yield from self._generate_splits(*zip(*splits))
 
-    def apply_preprocessor(self, preprocessor: Preprocessor, apply_transform=True, thinkers=None, sessions=None):
-        for thinker in self._thinkers.values():
-            thinker.apply_preprocessor(preprocessor)
-        if apply_transform:
-            self.add_transform(preprocessor.get_transform())
-
-    def add_transform(self, transform, thinkers=None, sessions=None):
+    def add_transform(self, transform, thinkers=None):
         for thinker in self._thinkers.values():
             thinker.add_transform(transform)
 

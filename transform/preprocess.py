@@ -1,6 +1,6 @@
 import mne
 import numpy as np
-from transforms import *
+from transform import *
 
 
 class Preprocessor:
