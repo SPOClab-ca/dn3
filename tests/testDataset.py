@@ -13,6 +13,9 @@ _SAMPLE_LENGTH = 128
 _TMIN = 0
 _TLEN = 1.0
 
+_THINKERS_IN_DATASETS = 20
+_NUM_FOLDS = 5
+
 
 def create_basic_data():
     sinx = np.sin(np.arange(_START_POINT, _END_POINT, 1 / _SFREQ) * 10).astype('float')
@@ -40,7 +43,7 @@ def create_dummy_raw():
     return raw
 
 
-class DummyCases(unittest.TestCase):
+class TestDatasetWIthDummyData(unittest.TestCase):
 
     def setUp(self):
         self.data = torch.from_numpy(create_basic_data())
@@ -106,6 +109,97 @@ class DummyCases(unittest.TestCase):
         self.assertEqual(len(training), len(_EVENTS) // 2)
         self.assertEqual(len(validating), len(_EVENTS) // 2)
         self.assertEqual(len(testing), len(_EVENTS))
+
+    def test_ThinkerSplitByID(self):
+        epoch_session = self.make_epoch_recording()
+        thinker = Thinker(dict(sess1=epoch_session, sess2=epoch_session), return_session_id=True)
+        training, validating, testing = thinker.split(testing_sess_ids=['sess1'], validation_frac=0.25)
+        self.assertEqual(len(training), 3 * len(_EVENTS) // 4)
+        self.assertEqual(len(validating), len(_EVENTS) // 4 + int(len(_EVENTS) % 4 > 0))
+        self.assertEqual(len(testing), len(_EVENTS))
+        for _, (x, sess, y) in enumerate(testing):
+            self.assertEqual(sess, 0)
+
+    def make_dataset_duplicated_thinkers(self, **dsargs):
+        epoch_session = self.make_epoch_recording()
+        thinker = Thinker(dict(sess1=epoch_session.clone(), sess2=epoch_session.clone()), return_session_id=True)
+        return Dataset({"p{}".format(i): thinker.clone() for i in range(20)}, **dsargs)
+
+    def test_MakeDataset(self):
+        dataset = self.make_dataset_duplicated_thinkers()
+        self.assertEqual(len(dataset), len(_EVENTS) * 2 * _THINKERS_IN_DATASETS)
+
+    def test_DatasetGet(self):
+        dataset = self.make_dataset_duplicated_thinkers(dataset_id=0, task_id=1, return_person_id=True,
+                                                        return_session_id=True)
+        sess_count, person_count = -1, -1
+        for i, (x, person_id, sess_id, y) in enumerate(dataset):
+            if i % len(_EVENTS) == 0:
+                sess_count = (sess_count + 1) % 2
+            if i % (2 * len(_EVENTS)) == 0:
+                person_count += 1
+            self.assertEqual(sess_id, sess_count)
+            self.assertEqual(person_id, person_count)
+            self.assertTrue(self.check_epoch_against_data(x, i % len(_EVENTS)))
+            self.assertEqual(torch.tensor(_EVENTS[i % len(_EVENTS)][1]), y)
+
+    def test_DatasetLOSO(self):
+        dataset = self.make_dataset_duplicated_thinkers(dataset_id=0, task_id=1, return_person_id=True,
+                                                        return_session_id=True, return_dataset_id=True)
+        people = dataset.get_thinkers()
+        for i, (training, validation, testing) in enumerate(dataset.loso()):
+            val, test = people[i-1], people[i]
+            for p1, p2 in zip((people[j] for j in range(len(people)) if people[j] not in (val, test)),
+                              training.get_thinkers()):
+                self.assertEqual(p1, p2)
+            self.assertEqual(val, validation.person_id)
+            self.assertEqual(test, testing.person_id)
+
+    def test_DatasetLOSOIds(self):
+        dataset = self.make_dataset_duplicated_thinkers(dataset_id=0, task_id=1, return_person_id=True,
+                                                        return_session_id=True, return_dataset_id=True)
+        vids = list()
+        people = dataset.get_thinkers()
+        training_people = set(dataset.get_thinkers()).difference(['p1'])
+        for i, (training, validation, testing) in enumerate(dataset.loso(test_person_id='p1')):
+            for p1, p2 in zip((people[j] for j in range(len(people)) if people[j] not in (validation.person_id, 'p1')),
+                              training.get_thinkers()):
+                self.assertEqual(p1, p2)
+            self.assertEqual('p1', testing.person_id)
+            vids.append(validation.person_id)
+        self.assertEqual(len(vids), len(training_people))
+        self.assertEqual(training_people, set(vids))
+
+    def test_DatasetLOSOSameValTest(self):
+        dataset = self.make_dataset_duplicated_thinkers(dataset_id=0, task_id=1, return_person_id=True,
+                                                        return_session_id=True, return_dataset_id=True)
+
+        def check():
+            for _ in dataset.loso(validation_person_id='p1', test_person_id='p1'):
+                pass
+        self.assertRaises(ValueError, check)
+
+    def test_DatasetLMSO(self):
+        dataset = self.make_dataset_duplicated_thinkers(dataset_id=0, task_id=1, return_person_id=True,
+                                                        return_session_id=True, return_dataset_id=True)
+        people = dataset.get_thinkers()
+        for i, (training, validation, testing) in enumerate(dataset.lmso(folds=_NUM_FOLDS)):
+            training_people = set(people).difference(testing.get_thinkers()).difference(
+                validation.get_thinkers())
+            self.assertSetEqual(set(training.get_thinkers()), training_people)
+            self.assertEqual(len(set(testing.get_thinkers()).intersection(validation.get_thinkers())), 0)
+
+    def test_DatasetLMSOTestIds(self):
+        dataset = self.make_dataset_duplicated_thinkers(dataset_id=0, task_id=1, return_person_id=True,
+                                                        return_session_id=True, return_dataset_id=True)
+        people = dataset.get_thinkers()
+        test_people = people[15:]
+        for i, (training, validation, testing) in enumerate(dataset.lmso(folds=_NUM_FOLDS, test_splits=test_people)):
+            training_people = set(people).difference(testing.get_thinkers()).difference(
+                validation.get_thinkers())
+            self.assertSetEqual(set(training.get_thinkers()), training_people)
+            self.assertSetEqual(set(testing.get_thinkers()), set(test_people))
+            self.assertEqual(len(set(testing.get_thinkers()).intersection(validation.get_thinkers())), 0)
 
 
 if __name__ == '__main__':

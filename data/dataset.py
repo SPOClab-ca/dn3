@@ -1,5 +1,6 @@
 import mne
 import torch
+import copy
 import bisect
 import numpy as np
 
@@ -28,6 +29,16 @@ class DNPTDataset(TorchDataset):
 
     def __len__(self):
         raise NotImplementedError
+
+    def clone(self):
+        """
+        Returns
+        -------
+        cloned : DNPTDataset
+                A shallow copy of this object to allow the repetition of recordings, thinkers, etc. that load data from
+                the same memory/files but have their own tracking of ids.
+        """
+        return copy.copy(self)
 
     def add_transform(self, transform):
         """
@@ -213,12 +224,12 @@ class Thinker(DNPTDataset, ConcatDataset):
         conditions.
         Parameters
         ----------
-        sessions : (iterable, dict)
+        sessions : Iterable, dict
                    Either a sequence of recordings, or a mapping of session_ids to recordings. If the former, the
                    recording's session_id is preserved. If the
-        person_id : (int, str)
-                   Label to be used for the thinker. If set to "auto" (default), will automatically pick the person_id
-                   using the most common person_id in the recordings.
+        person_id : int, str
+                    Label to be used for the thinker. If set to "auto" (default), will automatically pick the person_id
+                    using the most common person_id in the recordings.
         return_session_id : bool
                            Whether to return (enumerated - see `Dataset`) session_ids with the data itself.
         """
@@ -243,6 +254,8 @@ class Thinker(DNPTDataset, ConcatDataset):
         self.return_session_id = return_session_id
 
     def _reset_dataset(self):
+        for id in self.sessions:
+            self.sessions[id].session_id = id
         ConcatDataset.__init__(self, self.sessions.values())
 
     def __add__(self, sessions):
@@ -272,6 +285,11 @@ class Thinker(DNPTDataset, ConcatDataset):
 
     def __len__(self):
         return ConcatDataset.__len__(self)
+
+    def _make_like_me(self, sessions: Iterable):
+        if not isinstance(sessions, dict):
+            sessions = {s: self.sessions[s] for s in sessions}
+        return Thinker(sessions, self.person_id, self.return_session_id)
 
     def split(self, training_sess_ids=None, validation_sess_ids=None, testing_sess_ids=None, test_frac=0.25,
               validation_frac=0.25):
@@ -308,7 +326,7 @@ class Thinker(DNPTDataset, ConcatDataset):
             print("Ids duplicated across train/val/test split: {}".format(duplicated_ids))
         use_sessions = self.sessions.copy()
         training, validating, testing = (
-            ConcatDataset([use_sessions.pop(_id) for _id in ids]) if len(ids) else None
+            self._make_like_me({s_id: use_sessions.pop(s_id) for s_id in ids}) if len(ids) else None
             for ids in (training_sess_ids, validation_sess_ids, testing_sess_ids)
         )
         if training is not None and validating is not None and testing is not None:
@@ -317,13 +335,13 @@ class Thinker(DNPTDataset, ConcatDataset):
                     len(use_sessions)))
                 return training, validating, testing
 
-        remainder = ConcatDataset(use_sessions.values())
+        remainder = self._make_like_me(use_sessions.keys())
         if testing is None:
             assert test_frac is not None and 0 < test_frac < 1
             remainder, testing = rand_split(remainder, frac=test_frac)
         if validating is None:
             assert validation_frac is not None and 0 <= test_frac < 1
-            remainder, validating = rand_split(remainder, frac=validation_frac)
+            validating, remainder = rand_split(remainder, frac=validation_frac)
 
         training = remainder if training is None else training
 
@@ -392,7 +410,7 @@ class Dataset(DNPTDataset, ConcatDataset):
                      (e.g. in our example above A02)
         Parameters
         ----------
-        thinkers : (iterable, dict)
+        thinkers : Iterable, dict
                    Either a sequence of `Thinker`, or a mapping of person_id to `Thinker`. If the latter, id's are
                    overwritten by the mapping id's.
         dataset_id : int
@@ -409,32 +427,46 @@ class Dataset(DNPTDataset, ConcatDataset):
                            Whether to return the dataset_id with the data itself.
         return_task_id : bool
                            Whether to return the dataset_id with the data itself.
+
+        Notes
+        -----------
+        When getting items from a dataset, the id return order is returned most general to most specific, wrapped by
+        the actual raw data and (optionally, if epoch-variety recordings) the label for the raw data, thus:
+        raw_data, task_id, dataset_id, person_id, session_id, *label
         """
         super().__init__()
-        if isinstance(thinkers, Iterable):
-            self._thinkers = OrderedDict()
-            for t in thinkers:
-                self.__add__(t)
-
-        elif isinstance(thinkers, dict):
-            self._thinkers = OrderedDict(thinkers)
-        else:
-            raise TypeError("Thinkers must be iterable or already processed dict.")
-        self._thinkers = thinkers
-
-        self.dataset_id = torch.tensor(dataset_id)
-        self.task_id = torch.tensor(task_id)
-
         self.return_person_id = return_person_id
         self.return_session_id = return_session_id
         self.return_task_id = return_task_id
         self.return_dataset_id = return_dataset_id
 
+        if not isinstance(thinkers, dict) and isinstance(thinkers, Iterable):
+            self._thinkers = OrderedDict()
+            for t in thinkers:
+                self.__add__(t, return_session_id=return_session_id)
+
+        elif isinstance(thinkers, dict):
+            self._thinkers = OrderedDict(thinkers)
+            self._reset_dataset()
+        else:
+            raise TypeError("Thinkers must be iterable or already processed dict.")
+
+        self.dataset_id = torch.tensor(dataset_id) if dataset_id is not None else None
+        self.task_id = torch.tensor(task_id) if task_id is not None else None
+
     def _reset_dataset(self):
+        for p_id in self._thinkers:
+            self._thinkers[p_id].person_id = p_id
+            for s_id in self._thinkers[p_id].sessions:
+                self._thinkers[p_id].sessions[s_id].session_id = s_id
+                self._thinkers[p_id].sessions[s_id].person_id = p_id
         ConcatDataset.__init__(self, self._thinkers.values())
 
-    def __add__(self, thinker):
+    def __add__(self, thinker, return_session_id=None):
         assert isinstance(thinker, Thinker)
+        return_session_id = self.return_session_id if return_session_id is None else return_session_id
+        thinker.return_session_id = return_session_id
+
         if thinker.person_id in self._thinkers.keys():
             print("Warning. Person {} already in dataset... Merging sessions.".format(thinker.person_id))
             self._thinkers[thinker.person_id] += thinker
@@ -444,8 +476,11 @@ class Dataset(DNPTDataset, ConcatDataset):
 
     def __getitem__(self, item):
         person_id = bisect.bisect_right(self.cumulative_sizes, item)
-        x = self.get_thinkers()[person_id].__getitem__(item - self.cumulative_sizes[person_id - 1],
-                                                        self.return_session_id)
+        if person_id == 0:
+            sample_idx = item
+        else:
+            sample_idx = item - self.cumulative_sizes[person_id - 1]
+        x = self._thinkers[self.get_thinkers()[person_id]].__getitem__(sample_idx)
         if self.return_person_id:
             person_id = torch.tensor(person_id)
             if isinstance(x, Iterable):
@@ -454,11 +489,11 @@ class Dataset(DNPTDataset, ConcatDataset):
             else:
                 x = [x, person_id]
 
-        if self.return_task_id:
-            x.insert(1, self.task_id)
-
         if self.return_dataset_id:
             x.insert(1, self.dataset_id)
+
+        if self.return_task_id:
+            x.insert(1, self.task_id)
 
         return x
 
@@ -503,8 +538,8 @@ class Dataset(DNPTDataset, ConcatDataset):
         return self.cumulative_sizes[-1]
 
     def _make_like_me(self, people: list):
-        Dataset({p: self._thinkers[p] for p in people}, self.dataset_id, self.task_id, self.return_person_id,
-                self.return_session_id, self.return_dataset_id, self.return_task_id)
+        return Dataset({p: self._thinkers[p] for p in people}, self.dataset_id.item(), self.task_id.item(),
+                       self.return_person_id, self.return_session_id, self.return_dataset_id, self.return_task_id)
 
     def _generate_splits(self, validation, testing):
         for val, test in zip(validation, testing):
@@ -513,9 +548,19 @@ class Dataset(DNPTDataset, ConcatDataset):
                 training.remove(v)
             for t in test:
                 training.remove(t)
+
             training = self._make_like_me(training)
+
             validating = self._make_like_me(val) if len(val) > 1 else self._thinkers[val[0]]
+            _val_set = set(validating.get_thinkers()) if len(val) > 1 else {validating.person_id}
+
             testing = self._make_like_me(test) if len(test) > 1 else self._thinkers[test[0]]
+            _test_set = set(testing.get_thinkers()) if len(test) > 1 else {testing.person_id}
+
+            print(_val_set.intersection(_test_set))
+            if len(_val_set.intersection(_test_set)) > 0:
+                raise ValueError("Validation and test overlap with ids: {}".format(_val_set.intersection(_test_set)))
+
             yield training, validating, testing
 
     def loso(self, validation_person_id=None, test_person_id=None):
@@ -530,7 +575,7 @@ class Dataset(DNPTDataset, ConcatDataset):
                                be the same length as `test_person_id`, say a length N. If so, will yield N
                                each in sequence, and use remainder for test.
         test_person_id : (int, str, list, optional)
-                         Same as `validation_person_id`, but for testing. However, testing may be an list when
+                         Same as `validation_person_id`, but for testing. However, testing may be a list when
                          validation is a single value. Thus if testing is N ids, will yield N values, with a consistent
                          single validation person.
 
@@ -543,27 +588,25 @@ class Dataset(DNPTDataset, ConcatDataset):
         test : Thinker
                The test thinker
         """
-        if isinstance(validation_person_id, list):
-            if not isinstance(test_person_id, list) or len(test_person_id) != len(validation_person_id):
-                raise TypeError("Test ids must be same length iterable as validation ids.")
-            yield from self._generate_splits([[v] for v in validation_person_id], [[v] for v in test_person_id])
+        if test_person_id is not None and not isinstance(test_person_id, Iterable) or isinstance(test_person_id, str):
+            if validation_person_id is None:
+                validation_person_id = [pid for pid in self.get_thinkers() if pid != test_person_id]
+            test_person_id = [test_person_id for _ in range(len(self.get_thinkers())-1)]
+        elif test_person_id is None:
+            test_person_id = [t for t in self.get_thinkers()]
 
-        if isinstance(test_person_id, list):
-            test_person_id = [[t] for t in test_person_id]
-        elif test_person_id is not None:
-            assert isinstance(validation_person_id, (int, str))
-            test_person_id = [[test_person_id] for _ in range(len(self.get_thinkers())-1)]
-        else:
-            test_person_id = [[t] for t in self.get_thinkers()]
+        if validation_person_id is not None and not isinstance(validation_person_id, Iterable) or \
+                isinstance(validation_person_id, str):
+            validation_person_id = [validation_person_id for _ in range(len(test_person_id))]
+        elif validation_person_id is None:
+            validation_person_id = [test_person_id[i-1] for i in range(len(test_person_id))]
 
-        if validation_person_id is not None:
-            validation_person_id = [[validation_person_id] for _ in range(len(test_person_id))]
-        else:
-            validation_person_id = [self.get_thinkers()[self.get_thinkers().index(t[0])-1] for t in test_person_id]
+        if not isinstance(test_person_id, list) or len(test_person_id) != len(validation_person_id):
+            raise ValueError("Test ids must be same length iterable as validation ids.")
 
-        yield from self._generate_splits(validation_person_id, test_person_id)
+        yield from self._generate_splits([[v] for v in validation_person_id], [[t] for t in test_person_id])
 
-    def lmso(self, folds=10, splits=None):
+    def lmso(self, folds=10, test_splits=None, validation_splits=None):
         """
         This *generates* a "Leave-multiple-subject-out" (LMSO) split. In other words X-fold cross-validation, with
         boundaries enforced at thinkers (each person's data is not split into different folds).
@@ -572,10 +615,11 @@ class Dataset(DNPTDataset, ConcatDataset):
         folds : int
                 If this is specified and `splits` is None, will split the subjects into this many folds, and then use
                 each fold as a test set in turn (and the previous fold - starting with the last - as validation).
-        splits : list
-                If this is not None, folds is ignored. Instead, this should be a list of tuples/lists that represent
-                each fold. Each element of the list then has two sub-lists, first the ids for validation and second
-                the ids for testing.
+        test_splits : list, tuple
+                This should be a list of tuples/lists of either:
+                  - The ids of the consistent test set. In which case, folds must be specified, or validation_splits
+                    is a nested list that .
+                  - Two sub lists, first testing, second validation ids
 
         Yields
         -------
@@ -586,10 +630,35 @@ class Dataset(DNPTDataset, ConcatDataset):
         test : Thinker
                The test people as a dataset
         """
-        if splits is None:
+
+        def is_nested(split: list):
+            should_be_nested = isinstance(split[0], (list, tuple))
+            for x in split[1:]:
+                if (should_be_nested and not isinstance(x, (list, tuple))) or (isinstance(x, (list, tuple))
+                                                                               and not should_be_nested):
+                        raise ValueError("Can't mix list/tuple and other elements when specifying ids.")
+            if not should_be_nested and folds is None:
+                raise ValueError("Can't infer folds from non-nested list. Specify folds, or nest ids")
+            return should_be_nested
+
+        def calculate_from_remainder(known_split):
+            _folds = len(known_split) if is_nested(list(known_split)) else folds
+            if folds is None:
+                print("Inferred {} folds from test split.".format(_folds))
+            remainder = list(set(self.get_thinkers()).difference(known_split))
+            return [list(x) for x in np.array_split(remainder, _folds)], [known_split for _ in range(_folds)]
+
+        if test_splits is None and validation_splits is None:
+            if folds is None:
+                raise ValueError("Must specify <folds> if not specifying ids.")
             folds = [list(x) for x in np.array_split(self.get_thinkers(), folds)]
-            splits = [(folds[i-1], folds[i]) for i in range(len(folds))]
-        yield from self._generate_splits(*zip(*splits))
+            test_splits, validation_splits = zip(*[(folds[i], folds[i-1]) for i in range(len(folds))])
+        elif validation_splits is None:
+            validation_splits, test_splits = calculate_from_remainder(test_splits)
+        elif test_splits is None:
+            test_splits, validation_splits = calculate_from_remainder(validation_splits)
+
+        yield from self._generate_splits(validation_splits, test_splits)
 
     def add_transform(self, transform, thinkers=None):
         for thinker in self._thinkers.values():
