@@ -8,11 +8,10 @@ from data.dataset import DNPTDataset
 
 class BaseTrainable(object):
 
-    def __init__(self, optimizer=None, scheduler=None, cuda=False, clip_grad_norm=0):
+    def __init__(self, optimizer=None, scheduler=None, cuda=False):
         self.cuda = cuda
         self.optimizer = torch.optim.Adam(self.all_trainable_params()) if optimizer is None else optimizer
         self.scheduler = scheduler
-        self.clipping = clip_grad_norm
 
     def all_trainable_params(self):
         raise NotImplementedError()
@@ -64,12 +63,10 @@ class BaseTrainable(object):
     def backward(self, loss):
         self.optimizer.zero_grad()
         loss.backward()
-        if self.clipping > 0:
-            torch.nn.utils.clip_grad_norm(self.all_trainable_params(), self.clipping)
 
     def train_step(self, *inputs):
         outputs = self.forward(*inputs)
-        self.backward(self.calculate_loss(outputs))
+        self.backward(self.calculate_loss(inputs, outputs))
 
         self.optimizer.step()
         if self.scheduler is not None:
@@ -133,7 +130,7 @@ class SimpleClassifier(BaseTrainable):
         return self.classifier(inputs[0])
 
     def calculate_loss(self, inputs, outputs):
-        return self.loss(inputs[-1], outputs.argmax(dim=-1))
+        return self.loss(outputs, inputs[-1])
 
     def fit(self, training_dataset: DNPTDataset, epochs=1, validation_dataset=None, step_callback=None,
             epoch_callback=None):
@@ -176,8 +173,9 @@ class SimpleClassifier(BaseTrainable):
                 pbar.set_postfix(train_metrics)
                 train_metrics['epoch'] = epoch
                 train_metrics['iteration'] = iteration
+                train_metrics['lr'] = self.optimizer.param_groups[0]['lr']
                 train_log.append(train_metrics)
-                if callable(train_metrics):
+                if callable(step_callback):
                     step_callback(train_metrics)
 
             val_metrics = self.evaluate(validation_dataset)
@@ -196,3 +194,32 @@ class SimpleClassifier(BaseTrainable):
                 epoch_callback(val_metrics)
 
         return train_log, validation_log
+
+
+class DonchinSpeller(BaseTrainable):
+
+    def __init__(self, p300_detector: torch.nn.Module, detector_len: int, aggregator: torch.nn.Module, end_to_end=False,
+                 loss_fn=None, cuda=False):
+        self.detector = p300_detector
+        self.detector_len = detector_len
+        self.aggregator = aggregator
+        self.loss = torch.nn.CrossEntropyLoss() if loss_fn is None else loss_fn
+        # TODO elegant cuda setting
+        super().__init__(cuda=cuda)
+
+    def all_trainable_params(self):
+        return *self.detector.parameters(), *self.aggregator.parameters()
+
+    def train_step(self, *inputs):
+        self.classifier.train(True)
+        return super(SimpleClassifier, self).train_step(*inputs)
+
+    def evaluate(self, dataset: DNPTDataset):
+        self.classifier.train(False)
+        return super(SimpleClassifier, self).evaluate(dataset)
+
+    def forward(self, *inputs):
+        return self.classifier(inputs[0])
+
+    def calculate_loss(self, inputs, outputs):
+        return self.loss(outputs, inputs[-1])

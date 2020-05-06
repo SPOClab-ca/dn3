@@ -17,7 +17,7 @@
 
 # -- Project information -----------------------------------------------------
 
-project = 'Deep Neurophysiology Toolbox (DNPT)'
+project = 'Deep Neural Networks for Neurophysiology (DN3)'
 copyright = '2020, Demetres Kostas'
 author = 'Demetres Kostas'
 
