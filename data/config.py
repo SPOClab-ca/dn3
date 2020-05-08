@@ -27,7 +27,7 @@ class ExperimentConfig:
     """
     Parses DN3 configuration files. Checking the DN3 token for listed datasets.
     """
-    def __init__(self, config_filename: str, auto_create_datasets=True, adopt_auxiliaries=True):
+    def __init__(self, config_filename: str, adopt_auxiliaries=True):
         """
         Parses DN3 configuration files. Checking the DN3 token for listed datasets.
         Parameters
@@ -38,7 +38,8 @@ class ExperimentConfig:
                              For any additional tokens aside from DN3 and specified datasets, integrate them into this
                              object for later use. Defaults to True. This will propagate for the detected datasets.
         """
-        self._original_config = yaml.load(open(config_filename, 'r'))
+        with open(config_filename, 'r') as fio:
+            self._original_config = yaml.load(fio)
         working_config = self._original_config.copy()
 
         if 'DN3' not in working_config.keys():
@@ -55,7 +56,7 @@ class ExperimentConfig:
             if ds not in working_config.keys():
                 raise DN3ConfigException("Dataset: {} not found in {}".format(
                     ds, [k for k in working_config.keys() if k != 'DN3']))
-            self.datasets[ds] = DatasetConfig(working_config.pop(ds))
+            self.datasets[ds] = DatasetConfig(ds, working_config.pop(ds))
         print("Found {} dataset(s).".format(len(self.datasets)))
 
         self.experiment = working_config.pop('DN3')
@@ -84,17 +85,17 @@ class DatasetConfig:
                             Adopt additional configuration entries as object variables.
 
         """
-        self._original_config = config.copy()
+        self._original_config = dict(config).copy()
 
         # Optional args set, these help define which are required, so they come first
         def get_pop(key, default=None):
-            config.setdefault(key, __default=default)
+            config.setdefault(key, default)
             return config.pop(key)
 
         # Epoching relevant options
-        self.tlen = get_pop('tlen')
+        # self.tlen = get_pop('tlen')
         self.tmin = get_pop('tmin')
-        self._create_raw_recordings = self.tlen is None or self.tmin is None
+        self._create_raw_recordings = self.tmin is None
         self.events = get_pop('events')
         if self.events is not None and not isinstance(self.events, list):
             raise DN3ConfigException("Specifying desired events must be done as a list. Not {}.".format(self.events))
@@ -112,17 +113,17 @@ class DatasetConfig:
         self.name = get_pop('name', name)
         self.stride = get_pop('stride', 1)
         self.extensions = get_pop('file_extensions', list(_SUPPORTED_EXTENSIONS.keys()))
-        # TODO add manually specified extension handlers
+        self.exclude_people = get_pop('exclude_people', list())
+        self.exclude_sessions = get_pop('exclude_sessions', list())
 
         # Required args
         try:
             self.toplevel = Path(config.pop('toplevel'))
-            if self._create_raw_recordings:
-                self.sample_length = config.pop('sample_length')
+            self.tlen = config.pop('tlen')
         except KeyError as e:
             raise DN3ConfigException("Could not find required value: {}".format(e.args[0]))
         if not self.toplevel.exists():
-            raise DN3ConfigException("The toplevel {} for dataset {}")
+            raise DN3ConfigException("The toplevel {} for dataset {} does not exists".format(self.toplevel, self.name))
 
         # The rest
         if adopt_auxiliaries:
@@ -132,8 +133,7 @@ class DatasetConfig:
         self._extension_handlers = _SUPPORTED_EXTENSIONS.copy()
         if ext_handlers is not None:
             for ext in ext_handlers:
-                assert callable(ext_handlers[ext])
-                self._extension_handlers[ext] = ext_handlers[ext]
+                self.add_extension_handler(ext, ext_handlers[ext])
 
     _PICK_TYPES = ['meg', 'eeg', 'stim', 'eog', 'ecg', 'emg', 'ref_meg', 'misc', 'resp', 'chpi', 'exci', 'ias', 'syst',
                    'seeg', 'dipole', 'gof', 'bio', 'ecog', 'fnirs', 'csd', ]
@@ -144,16 +144,34 @@ class DatasetConfig:
                 return False
         return True
 
+    def add_extension_handler(self, extension: str, handler):
+        """
+        Provide callable code to create a raw instance from sessions with certain file extensions. This is useful for
+        handling of custom file formats, while preserving a consistent experiment framework.
+
+        Parameters
+        ----------
+        extension : str
+                   An extension that includes the '.', e.g. '.csv'
+        handler : callable
+                  Callback with signature f(path_to_file: str) -> mne.io.Raw
+
+        Returns
+        -------
+
+        """
+        assert callable(handler)
+        self._extension_handlers[extension] = handler
+
     def scan_toplevel(self):
-        print()
         files = list()
         pbar = tqdm.tqdm(self.extensions,
                          desc="Scanning {}. If there are a lot of files, this may take a while...".format(
                              self.toplevel))
         for extension in pbar:
             pbar.set_postfix(dict(extension=extension))
-            files.append(self.toplevel.glob("**/*{}".format(extension)))
-        return list()
+            files += self.toplevel.glob("**/*{}".format(extension))
+        return files
 
     def auto_mapping(self, files=None):
         """
@@ -198,7 +216,7 @@ class DatasetConfig:
 
         raw = self._load_raw(session)
         if self._create_raw_recordings:
-            return RawTorchRecording(raw, sample_len=self.sample_length, stride=self.stride)
+            return RawTorchRecording(raw, sample_len=int(self.tlen * raw.info['sfreq']), stride=self.stride)
 
         epochs = make_epochs_from_raw(raw, self.tmin, self.tlen, baseline=self.baseline, decim=self.decimate,
                                       filter_bp=self.bandpass, drop_bad=self.drop_bad)
@@ -207,13 +225,14 @@ class DatasetConfig:
 
         return EpochTorchRecording(epochs, picks=picks)
 
-    def _construct_thinker_from_config(self, thinker: dict):
-        return Thinker({sess: self._construct_session_from_config(thinker[sess]) for sess in thinker})
+    def _construct_thinker_from_config(self, thinker: list):
+        return Thinker({Path(sess).name: self._construct_session_from_config(sess) for sess in thinker})
 
     def auto_construct_dataset(self, mapping=None, **dsargs):
         """
         This creates a dataset using the config values. If tlen and tmin are specified in the config, creates epoched
         dataset, otherwise Raw.
+
         Parameters
         ----------
         mapping : dict, optional
@@ -227,9 +246,11 @@ class DatasetConfig:
         dsargs :
                 Any additional arguments to feed for the creation of the dataset. i.e. keyword arguments to `Dataset`'s
                 constructor (which id's to return).
+
         Returns
         -------
-        An instance of `Dataset`, constructed according to mapping.
+        dataset : :any:`Dataset`
+                An instance of :any:`Dataset`, constructed according to mapping.
         """
         if mapping is None:
             return self.auto_construct_dataset(self.auto_mapping())

@@ -106,6 +106,17 @@ class BaseTrainable(object):
 
         return metrics
 
+    @classmethod
+    def standard_logging(cls, metrics: dict, start_message="End of Epoch"):
+        if start_message.rstrip()[-1] != '|':
+            start_message = start_message.rstrip() + " |"
+        for m in metrics:
+            if 'acc' in m or 'pct' in m:
+                start_message += " {}: {:.2%} |".format(m, metrics[m])
+            else:
+                start_message += " {}: {:.2f} |".format(m, metrics[m])
+        tqdm.tqdm.write(start_message)
+
 
 class SimpleClassifier(BaseTrainable):
 
@@ -180,13 +191,7 @@ class SimpleClassifier(BaseTrainable):
 
             val_metrics = self.evaluate(validation_dataset)
 
-            log_string = "End of Epoch {} |".format(epoch)
-            for m in val_metrics:
-                if 'acc' in m or 'pct' in m:
-                    log_string += " {}: {:.2%} |".format(m, val_metrics[m])
-                else:
-                    log_string += " {}: {:.2f} |".format(m, val_metrics[m])
-            tqdm.tqdm.write(log_string)
+            self.standard_logging(val_metrics, "End of Epoch {}".format(epoch))
 
             val_metrics['epoch'] = epoch
             validation_log.append(val_metrics)

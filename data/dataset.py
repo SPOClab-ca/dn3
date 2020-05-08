@@ -32,17 +32,19 @@ class DNPTDataset(TorchDataset):
 
     def clone(self):
         """
+        A shallow copy of this object to allow the repetition of recordings, thinkers, etc. that load data from
+        the same memory/files but have their own tracking of ids.
         Returns
         -------
         cloned : DNPTDataset
-                A shallow copy of this object to allow the repetition of recordings, thinkers, etc. that load data from
-                the same memory/files but have their own tracking of ids.
+                 New copy of this object.
         """
         return copy.copy(self)
 
     def add_transform(self, transform):
         """
         Add a transformation that is applied to every fetched item in the dataset
+
         Parameters
         ----------
         transform : BaseTransform
@@ -222,6 +224,7 @@ class Thinker(DNPTDataset, ConcatDataset):
         """
         Collects multiple recordings of the same person, intended to be of the same task, at different times or
         conditions.
+
         Parameters
         ----------
         sessions : Iterable, dict
@@ -295,6 +298,7 @@ class Thinker(DNPTDataset, ConcatDataset):
               validation_frac=0.25):
         """
         Split the thinker's data into training, validation and testing sets.
+
         Parameters
         ----------
         test_frac : float
@@ -350,6 +354,7 @@ class Thinker(DNPTDataset, ConcatDataset):
     def preprocess(self, preprocessor: Preprocessor, apply_transform=True, sessions=None):
         """
         Applies a preprocessor to the dataset
+
         Parameters
         ----------
         preprocessor : Preprocessor
@@ -361,6 +366,7 @@ class Thinker(DNPTDataset, ConcatDataset):
                           preprocessing) after preprocessing them. Exclusive application to select sessions can be
                           done using the return value and a separate call to `add_transform` with the same `sessions`
                           list.
+
         Returns
         ---------
         preprocessor : Preprocessor
@@ -408,6 +414,7 @@ class Dataset(DNPTDataset, ConcatDataset):
         .. warning:: The enumerated ids above are only ever used in the construction of model input tensors,
                      otherwise, anywhere where ids are required as API, the *human readable* version is uesd
                      (e.g. in our example above A02)
+
         Parameters
         ----------
         thinkers : Iterable, dict
@@ -500,6 +507,7 @@ class Dataset(DNPTDataset, ConcatDataset):
     def preprocess(self, preprocessor: Preprocessor, apply_transform=True, thinkers=None):
         """
         Applies a preprocessor to the dataset
+
         Parameters
         ----------
         preprocessor : Preprocessor
@@ -511,6 +519,7 @@ class Dataset(DNPTDataset, ConcatDataset):
                           preprocessing) after preprocessing them. Exclusive application to specific thinkers can be
                           done using the return value and a separate call to `add_transform` with the same `thinkers`
                           list.
+
         Returns
         ---------
         preprocessor : Preprocessor
@@ -567,6 +576,7 @@ class Dataset(DNPTDataset, ConcatDataset):
         """
         This *generates* a "Leave-one-subject-out" (LOSO) split. Tests each person one-by-one, and validates on the
         previous (the first is validated with the last).
+
         Parameters
         ----------
         validation_person_id : (int, str, list, optional)
@@ -610,6 +620,7 @@ class Dataset(DNPTDataset, ConcatDataset):
         """
         This *generates* a "Leave-multiple-subject-out" (LMSO) split. In other words X-fold cross-validation, with
         boundaries enforced at thinkers (each person's data is not split into different folds).
+
         Parameters
         ----------
         folds : int

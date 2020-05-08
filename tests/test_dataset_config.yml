@@ -1,0 +1,37 @@
+DN3:
+  datasets:
+    - mmidb_minimally_specified_raw
+    - mmidb_minimally_specified_epoch
+    - mmidb_fully_specified
+  an_extra_param: 2
+
+another_extra: 10
+
+mmidb_minimally_specified_raw:
+  toplevel: ./test_dataset/physionet.org/files/eegmmidb/
+  tlen: 3
+
+mmidb_minimally_specified_epoch:
+  toplevel: ./test_dataset/physionet.org/files/eegmmidb/
+  tlen: 3
+  tmin: -0.5
+
+mmidb_fully_specified:
+  toplevel: ./test_dataset/physionet.org/files/eegmmidb/
+  tlen: 3
+  name: "MMIDB"
+  events:
+    - 0
+    - 3
+  picks:
+    - eeg
+  decimate: 2
+  baseline: -0.5
+  bandpass: [0.1, 40]
+  drop_bad: True
+  max: 1.5
+  min: -1.5
+  file_extensions:
+    - '.edf'
+
+
