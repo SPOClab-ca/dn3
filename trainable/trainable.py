@@ -9,8 +9,11 @@ from data.dataset import DNPTDataset
 class BaseTrainable(object):
 
     def __init__(self, optimizer=None, scheduler=None, cuda=False):
-        self.cuda = cuda
-        self.optimizer = torch.optim.Adam(self.all_trainable_params()) if optimizer is None else optimizer
+        if isinstance(cuda, bool) and cuda:
+            self.device = "cuda" if cuda else "cpu"
+        assert isinstance(cuda, str)
+        self.device = torch.device(cuda)
+        self.optimizer = torch.optim.Adam(self.all_trainable_params()) if optimizer is None else optimizer()
         self.scheduler = scheduler
 
     def all_trainable_params(self):
@@ -121,10 +124,9 @@ class BaseTrainable(object):
 class SimpleClassifier(BaseTrainable):
 
     def __init__(self, classifier: torch.nn.Module, loss_fn=None, cuda=False):
-        self.classifier = classifier
-        self.loss = torch.nn.CrossEntropyLoss() if loss_fn is None else loss_fn
-        # TODO elegant cuda setting
         super().__init__(cuda=cuda)
+        self.classifier = classifier.to(self.device)
+        self.loss = torch.nn.CrossEntropyLoss().to(self.device) if loss_fn is None else loss_fn.to(self.device)
 
     def all_trainable_params(self):
         return self.classifier.parameters()
@@ -165,10 +167,7 @@ class SimpleClassifier(BaseTrainable):
                          Validation metrics after each epoch of training as a pandas dataframe
         """
         def get_batch(iterator):
-            if self.cuda:
-                return [x.cuda() for x in next(iterator)]
-            else:
-                return next(iterator)
+            return [x.to(self.device) for x in next(iterator)]
 
         validation_log = DataFrame()
         train_log = DataFrame()
@@ -205,15 +204,14 @@ class DonchinSpeller(BaseTrainable):
 
     def __init__(self, p300_detector: torch.nn.Module, detector_len: int, aggregator: torch.nn.Module, end_to_end=False,
                  loss_fn=None, cuda=False):
+        super().__init__(cuda=cuda)
         self.detector = p300_detector
         self.detector_len = detector_len
         self.aggregator = aggregator
         self.loss = torch.nn.CrossEntropyLoss() if loss_fn is None else loss_fn
-        # TODO elegant cuda setting
-        super().__init__(cuda=cuda)
 
     def all_trainable_params(self):
-        return *self.detector.parameters(), *self.aggregator.parameters()
+        return (*self.detector.parameters(), *self.aggregator.parameters())
 
     def train_step(self, *inputs):
         self.classifier.train(True)
