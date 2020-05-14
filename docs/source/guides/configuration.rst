@@ -1,5 +1,6 @@
-Configuration Files
+The Configuratron
 =========================
+*High-level dataset and experiment descriptions*
 
 .. contents:: :local:
 

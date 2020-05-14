@@ -11,23 +11,34 @@ from .utils import rand_split
 
 from abc import ABC
 from collections import OrderedDict
-from collections.abc import Iterable, Sized
+from collections.abc import Iterable
 from torch.utils.data import Dataset as TorchDataset
 from torch.utils.data import ConcatDataset
 
 
-class DNPTDataset(TorchDataset):
+class DN3ataset(TorchDataset):
     """
-    Base class for all DNPT objects that can be used as pytorch-compatible datasets. Ensuring that DNPT extension is
-    conformed to.
+    Base class for that specifies the interface for DN3 datasets.
     """
     def __init__(self):
         self._transforms = list()
 
     def __getitem__(self, item):
-        raise NotImplementedError()
+        raise NotImplementedError
 
     def __len__(self):
+        raise NotImplementedError
+
+    @property
+    def sfreq(self):
+        raise NotImplementedError
+
+    @property
+    def channels(self):
+        raise NotImplementedError
+
+    @property
+    def sequence_length(self):
         raise NotImplementedError
 
     def clone(self):
@@ -36,7 +47,7 @@ class DNPTDataset(TorchDataset):
         the same memory/files but have their own tracking of ids.
         Returns
         -------
-        cloned : DNPTDataset
+        cloned : DN3ataset
                  New copy of this object.
         """
         return copy.copy(self)
@@ -57,24 +68,47 @@ class DNPTDataset(TorchDataset):
         self._transforms = list()
 
     def preprocess(self, preprocessor: Preprocessor, apply_transform=True):
-        raise NotImplementedError()
+        raise NotImplementedError
 
 
-class _Recording(DNPTDataset, ABC):
+class _Recording(DN3ataset, ABC):
     """
     Abstract base class for any supported recording
     """
-    def __init__(self, info, session_id, person_id):
+    def __init__(self, info, session_id, person_id, tlen):
         super().__init__()
         self.info = info
-        self.sfreq = info['sfreq']
-        assert self.sfreq is not None
+        self._recording_channels = [ch['ch_name'] for ch in info['chs']]
+        self._recording_sfreq = info['sfreq']
+        self._recording_len = int(self._recording_sfreq) * tlen
+        assert self._sfreq is not None
         self.session_id = session_id
         self.person_id = person_id
 
     def get_all(self):
         all_recordings = [x for x in self]
         return [torch.stack(t) for t in zip(*all_recordings)]
+
+    @property
+    def sfreq(self):
+        sfreq = self._recording_sfreq
+        for xform in self._transforms:
+            sfreq = xform.new_sfreq(sfreq)
+        return sfreq
+
+    @property
+    def channels(self):
+        channels = np.ndarray(self._recording_channels)
+        for xform in self._transforms:
+            channels = xform.new_channels(channels)
+        return channels
+
+    @property
+    def sequence_length(self):
+        sequence_length = self._recording_len
+        for xform in self._transforms:
+            sequence_length = xform.new_channels(sequence_length)
+        return sequence_length
 
 
 class RawTorchRecording(_Recording):
@@ -85,21 +119,20 @@ class RawTorchRecording(_Recording):
     ----------
     raw : mne.io.Raw
           Raw data, data does not need to be preloaded.
+    tlen : float
+          Length of recording specified in seconds.
     session_id : (int, str, optional)
           A unique (with respect to a thinker within an eventual dataset) identifier for the current recording
           session. If not specified, defaults to '0'.
     person_id : (int, str, optional)
           A unique (with respect to an eventual dataset) identifier for the particular person being recorded.
-    sample_len : int
-          Number of samples to be loaded each index.
-    tlen : float
-          Alternative to sample_len specified in seconds, overrides `sample_len`.
     stride : int
           The number of samples to skip between each starting offset of loaded samples.
     """
 
-    def __init__(self, raw: mne.io.Raw, session_id=0, person_id=0, sample_len=512, tlen=None, stride=1,
-                 picks=None, normalizer=_min_max_normalize, **kwargs):
+    def __init__(self, raw: mne.io.Raw, tlen, info, session_id=0, person_id=0, stride=1, picks=None,
+                 normalizer=_min_max_normalize, **kwargs):
+
         """
         Interface for bridging mne Raw instances as PyTorch compatible "Dataset".
 
@@ -107,25 +140,22 @@ class RawTorchRecording(_Recording):
         ----------
         raw : mne.io.Raw
               Raw data, data does not need to be preloaded.
+        tlen : float
+              Length of recording specified in seconds.
         session_id : (int, str, optional)
               A unique (with respect to a thinker within an eventual dataset) identifier for the current recording
               session. If not specified, defaults to '0'.
         person_id : (int, str, optional)
               A unique (with respect to an eventual dataset) identifier for the particular person being recorded.
-        sample_len : int
-              Number of samples to be loaded each index.
-        tlen : float
-              Alternative to sample_len specified in seconds, overrides `sample_len`.
         stride : int
               The number of samples to skip between each starting offset of loaded samples.
         """
-        super().__init__(raw.info, session_id, person_id)
+        super().__init__(info, session_id, person_id, tlen)
         self.raw = raw
         self.stride = stride
         self.max = kwargs.get('max', None)
         self.min = kwargs.get('min', 0)
         self.normalizer = normalizer
-        self.sample_len = sample_len if tlen is None else int(self.sfreq * tlen)
         self.picks = picks
         self.__dict__.update(kwargs)
 
@@ -135,7 +165,7 @@ class RawTorchRecording(_Recording):
         index *= self.stride
 
         # Get the actual signals
-        x = self.raw.get_data(self.picks, start=index, stop=index+self.sample_len)
+        x = self.raw.get_data(self.picks, start=index, stop=index+self.sequence_length)
         scale = 1 if self.max is None else (x.max() - x.min()) / (self.max - self.min)
         if scale > 1 or np.isnan(scale):
             print('Warning: scale exeeding 1')
@@ -155,7 +185,7 @@ class RawTorchRecording(_Recording):
         return x
 
     def __len__(self):
-        return (self.raw.n_times - self.sample_len) // self.stride
+        return (self.raw.n_times - self.sequence_length) // self.stride
 
     def preprocess(self, preprocessor: Preprocessor, apply_transform=True):
         self.raw = preprocessor(recording=self)
@@ -167,20 +197,12 @@ class EpochTorchRecording(_Recording):
 
     def __init__(self, epochs: mne.Epochs, session_id=0, person_id=0, force_label=None, cached=False,
                  normalizer=_min_max_normalize, picks=None):
-        super().__init__(epochs.info, session_id, person_id)
+        super().__init__(epochs.info, session_id, person_id, epochs.tmax - epochs.tmin)
         self.epochs = epochs
-        self._t_len = epochs.tmax - epochs.tmin
         self._cache = [None for _ in range(len(epochs.events))] if cached else None
         self.force_label = force_label if force_label is None else torch.tensor(force_label)
         self.normalizer = normalizer
         self.picks = picks
-
-    @property
-    def channels(self):
-        if self.picks is None:
-            return len(self.epochs.ch_names)
-        else:
-            return len(self.picks)
 
     def __getitem__(self, index):
         ep = self.epochs[index]
@@ -215,7 +237,7 @@ class EpochTorchRecording(_Recording):
             self.add_transform(preprocessor.get_transform())
 
 
-class Thinker(DNPTDataset, ConcatDataset):
+class Thinker(DN3ataset, ConcatDataset):
     """
     Collects multiple recordings of the same person, intended to be of the same task, at different times or conditions.
     """
@@ -236,7 +258,7 @@ class Thinker(DNPTDataset, ConcatDataset):
         return_session_id : bool
                            Whether to return (enumerated - see `Dataset`) session_ids with the data itself.
         """
-        DNPTDataset.__init__(self)
+        DN3ataset.__init__(self)
         if not isinstance(sessions, dict) and isinstance(sessions, Iterable):
             self.sessions = OrderedDict()
             for r in sessions:
@@ -257,9 +279,33 @@ class Thinker(DNPTDataset, ConcatDataset):
         self.return_session_id = return_session_id
 
     def _reset_dataset(self):
-        for id in self.sessions:
-            self.sessions[id].session_id = id
+        for _id in self.sessions:
+            self.sessions[_id].session_id = _id
         ConcatDataset.__init__(self, self.sessions.values())
+
+    @property
+    def sfreq(self):
+        sfreq = set(self.sessions[s].sfreq for s in self.sessions)
+        if len(sfreq) > 1:
+            print("Warning: Multiple sampling frequency values found. Over/re-sampling may be necessary.")
+            return list(sfreq)
+        return sfreq.pop()
+
+    @property
+    def channels(self):
+        channels = set(self.sessions[s].channels for s in self.sessions)
+        if len(channels) > 1:
+            print("Warning: Multiple channel sets found. A consistent mapping like Deep1010 may be prudent.")
+            return list(channels)
+        return channels.pop()
+
+    @property
+    def sequence_length(self):
+        sequence_length = set(self.sessions[s].channels for s in self.sessions)
+        if len(sequence_length) > 1:
+            print("Warning: Multiple sequence lengths found. A cropping transformation may be in order.")
+            return list(sequence_length)
+        return sequence_length.pop()
 
     def __add__(self, sessions):
         assert isinstance(sessions, (_Recording, Thinker))
@@ -315,11 +361,11 @@ class Thinker(DNPTDataset, ConcatDataset):
 
         Returns
         -------
-        training : DNPTDataset
+        training : DN3ataset
                    The training dataset
-        validation : DNPTDataset
+        validation : DN3ataset
                    The validation dataset
-        testing : DNPTDataset
+        testing : DN3ataset
                    The testing dataset
         """
         training_sess_ids = set(training_sess_ids) if training_sess_ids is not None else set()
@@ -388,7 +434,7 @@ class Thinker(DNPTDataset, ConcatDataset):
             s.add_transform(transform)
 
 
-class Dataset(DNPTDataset, ConcatDataset):
+class Dataset(DN3ataset, ConcatDataset):
     """
     Collects thinkers, each of which may collect multiple recording sessions of the same tasks, into a dataset with
     (largely) consistent:
@@ -534,11 +580,27 @@ class Dataset(DNPTDataset, ConcatDataset):
 
     @property
     def sfreq(self):
-        raise NotImplementedError()
+        sfreq = set(self._thinkers[t].sfreq for t in self._thinkers)
+        if len(sfreq) > 1:
+            print("Warning: Multiple sampling frequency values found. Over/re-sampling may be necessary.")
+            return list(sfreq)
+        return sfreq.pop()
 
     @property
     def channels(self):
-        raise NotImplementedError()
+        channels = set(self._thinkers[t].channels for t in self._thinkers)
+        if len(channels) > 1:
+            print("Warning: Multiple channel sets found. A consistent mapping like Deep1010 may be prudent.")
+            return list(channels)
+        return channels.pop()
+
+    @property
+    def sequence_length(self):
+        sequence_length = set(self._thinkers[t].channels for t in self._thinkers)
+        if len(sequence_length) > 1:
+            print("Warning: Multiple sequence lengths found. A cropping transformation may be in order.")
+            return list(sequence_length)
+        return sequence_length.pop()
 
     def get_thinkers(self):
         return list(self._thinkers.keys())
@@ -678,3 +740,5 @@ class Dataset(DNPTDataset, ConcatDataset):
     def clear_transforms(self):
         for thinker in self._thinkers.values():
             thinker.clear_transforms()
+
+# TODO Convenience functions/classes for leave one and leave multiple datasets out.

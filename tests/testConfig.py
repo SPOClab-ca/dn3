@@ -2,8 +2,7 @@ import unittest
 import os
 
 from pathlib import Path
-from data.config import ExperimentConfig, DatasetConfig, DN3ConfigException
-
+from configuratron.config import ExperimentConfig
 
 _DATASET_URL = "https://physionet.org/files/eegmmidb/1.0.0/"
 _TEST_DATASET_LOCATION = "./test_dataset/"
@@ -44,6 +43,7 @@ class TestDatasetConfiguration(unittest.TestCase):
     NUM_SUBJECTS = 109
     RAW_TRIALS = 10000
     EPOCH_TRIALS = 100
+    SFREQ = 160
 
     def setUp(self) -> None:
         self.experiment_config = ExperimentConfig('./test_dataset_config.yml')
@@ -66,6 +66,7 @@ class TestDatasetConfiguration(unittest.TestCase):
     def test_FullySpecifiedConstruct(self):
         dataset = self.fully.auto_construct_dataset()
         self.assertEqual(self.NUM_SUBJECTS, len(dataset.get_thinkers()))
+        self.assertEqual(dataset.sfreq, )
 
 
 if __name__ == '__main__':

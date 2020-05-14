@@ -3,21 +3,40 @@ import tqdm
 
 from pandas import DataFrame
 from collections import OrderedDict
-from data.dataset import DNPTDataset
+from data.dataset import DN3ataset
 
 
 class BaseTrainable(object):
 
     def __init__(self, optimizer=None, scheduler=None, cuda=False):
+        """
+        Initialization of the Base Trainable object. Any learning procedure that leverages DN3atasets should subclass
+        this base class.
+
+        Parameters
+        ----------
+        optimizer
+        scheduler
+        cuda
+        """
+        self.cuda = cuda
+        self.optimizer = torch.optim.Adam(self.parameters()) if optimizer is None else optimizer
         if isinstance(cuda, bool) and cuda:
             self.device = "cuda" if cuda else "cpu"
         assert isinstance(cuda, str)
         self.device = torch.device(cuda)
-        self.optimizer = torch.optim.Adam(self.all_trainable_params()) if optimizer is None else optimizer()
         self.scheduler = scheduler
 
-    def all_trainable_params(self):
-        raise NotImplementedError()
+    def parameters(self):
+        """
+        All the trainable parameters in the Trainable. This includes any architecture parameters and meta-parameters.
+
+        Returns
+        -------
+        params :
+                 An iterator of parameters
+        """
+        raise NotImplementedError
 
     def forward(self, *inputs):
         """
@@ -33,7 +52,7 @@ class BaseTrainable(object):
                 Outputs of module
 
         """
-        raise NotImplementedError()
+        raise NotImplementedError
 
     def calculate_loss(self, intputs, outputs):
         """
@@ -45,7 +64,7 @@ class BaseTrainable(object):
         Loss :
              Single loss quantity to be minimized.
         """
-        raise NotImplementedError()
+        raise NotImplementedError
 
     def calculate_metrics(self, inputs, outputs):
         """
@@ -77,9 +96,10 @@ class BaseTrainable(object):
 
         return self.calculate_metrics(inputs, outputs)
 
-    def evaluate(self, dataset: DNPTDataset):
+    def evaluate(self, dataset: DN3ataset):
         """
         Calculate and return metrics for a dataset
+
         Parameters
         ----------
         dataset
@@ -121,23 +141,23 @@ class BaseTrainable(object):
         tqdm.tqdm.write(start_message)
 
 
-class SimpleClassifier(BaseTrainable):
+class StandardClassifier(BaseTrainable):
 
     def __init__(self, classifier: torch.nn.Module, loss_fn=None, cuda=False):
         super().__init__(cuda=cuda)
         self.classifier = classifier.to(self.device)
         self.loss = torch.nn.CrossEntropyLoss().to(self.device) if loss_fn is None else loss_fn.to(self.device)
 
-    def all_trainable_params(self):
+    def parameters(self):
         return self.classifier.parameters()
 
     def train_step(self, *inputs):
         self.classifier.train(True)
-        return super(SimpleClassifier, self).train_step(*inputs)
+        return super(StandardClassifier, self).train_step(*inputs)
 
-    def evaluate(self, dataset: DNPTDataset):
+    def evaluate(self, dataset: DN3ataset):
         self.classifier.train(False)
-        return super(SimpleClassifier, self).evaluate(dataset)
+        return super(StandardClassifier, self).evaluate(dataset)
 
     def forward(self, *inputs):
         return self.classifier(inputs[0])
@@ -145,15 +165,15 @@ class SimpleClassifier(BaseTrainable):
     def calculate_loss(self, inputs, outputs):
         return self.loss(outputs, inputs[-1])
 
-    def fit(self, training_dataset: DNPTDataset, epochs=1, validation_dataset=None, step_callback=None,
+    def fit(self, training_dataset: DN3ataset, epochs=1, validation_dataset=None, step_callback=None,
             epoch_callback=None):
         """
         sklearn/keras-like convenience method to simply proceed with training across multiple epochs of the provided
         dataset
         Parameters
         ----------
-        training_dataset : DNPTDataset
-        validation_dataset : DNPTDataset
+        training_dataset : DN3ataset
+        validation_dataset : DN3ataset
         epochs : int
         step_callback : callable
                         Function to run after every training step that has signature: fn(train_metrics) -> None
@@ -198,31 +218,3 @@ class SimpleClassifier(BaseTrainable):
                 epoch_callback(val_metrics)
 
         return train_log, validation_log
-
-
-class DonchinSpeller(BaseTrainable):
-
-    def __init__(self, p300_detector: torch.nn.Module, detector_len: int, aggregator: torch.nn.Module, end_to_end=False,
-                 loss_fn=None, cuda=False):
-        super().__init__(cuda=cuda)
-        self.detector = p300_detector
-        self.detector_len = detector_len
-        self.aggregator = aggregator
-        self.loss = torch.nn.CrossEntropyLoss() if loss_fn is None else loss_fn
-
-    def all_trainable_params(self):
-        return (*self.detector.parameters(), *self.aggregator.parameters())
-
-    def train_step(self, *inputs):
-        self.classifier.train(True)
-        return super(SimpleClassifier, self).train_step(*inputs)
-
-    def evaluate(self, dataset: DNPTDataset):
-        self.classifier.train(False)
-        return super(SimpleClassifier, self).evaluate(dataset)
-
-    def forward(self, *inputs):
-        return self.classifier(inputs[0])
-
-    def calculate_loss(self, inputs, outputs):
-        return self.loss(outputs, inputs[-1])

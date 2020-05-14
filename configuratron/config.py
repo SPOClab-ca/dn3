@@ -4,7 +4,7 @@ import mne.io as loader
 
 from pathlib import Path
 from mne import pick_types
-from .dataset import Dataset, RawTorchRecording, EpochTorchRecording, Thinker
+from data.dataset import Dataset, RawTorchRecording, EpochTorchRecording, Thinker
 from data.utils import make_epochs_from_raw
 
 
