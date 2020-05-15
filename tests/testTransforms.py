@@ -28,9 +28,11 @@ class TestTransforms(unittest.TestCase):
         self.assertNotIn(self.transform, self.dataset._transforms)
 
     def test_ZScoreTransform(self):
-        for i, (x, y) in enumerate(self.dataset):
+        i = 0
+        for x, y in self.dataset:
+            i += 1
             with self.subTest(i=i):
-                ev_id = i % len(EVENTS)
+                ev_id = (i-1) % len(EVENTS)
                 self.assertTrue(torch.allclose(x, simple_zscoring(retrieve_underlying_dummy_data(ev_id))))
 
 

@@ -27,7 +27,7 @@ class TestSessionsDummyData(unittest.TestCase):
         recording = self.make_raw_recording(picks=[0, 1])
         for i in (0, 10, -1):
             data_offset = list(range(len(recording)))[i]
-            self.assertTrue(check_raw_against_data(recording[i], data_offset))
+            self.assertTrue(check_raw_against_data(recording[i][0], data_offset))
 
     def test_EpochRecordingCreate(self):
         recording = self.make_epoch_recording()

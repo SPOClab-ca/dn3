@@ -3,7 +3,8 @@ import tqdm
 
 from pandas import DataFrame
 from collections import OrderedDict
-from dn3.data.dataset import DN3ataset
+from torch.utils.data import DataLoader
+# from dn3.data.dataset import DN3ataset
 
 
 class BaseTrainable(object):
@@ -96,7 +97,7 @@ class BaseTrainable(object):
 
         return self.calculate_metrics(inputs, outputs)
 
-    def evaluate(self, dataset: DN3ataset):
+    def evaluate(self, dataset: DataLoader):
         """
         Calculate and return metrics for a dataset
 
@@ -155,7 +156,7 @@ class StandardClassifier(BaseTrainable):
         self.classifier.train(True)
         return super(StandardClassifier, self).train_step(*inputs)
 
-    def evaluate(self, dataset: DN3ataset):
+    def evaluate(self, dataset: DataLoader):
         self.classifier.train(False)
         return super(StandardClassifier, self).evaluate(dataset)
 
@@ -165,7 +166,7 @@ class StandardClassifier(BaseTrainable):
     def calculate_loss(self, inputs, outputs):
         return self.loss(outputs, inputs[-1])
 
-    def fit(self, training_dataset: DN3ataset, epochs=1, validation_dataset=None, step_callback=None,
+    def fit(self, training_dataset: DataLoader, epochs=1, validation_dataset=None, step_callback=None,
             epoch_callback=None):
         """
         sklearn/keras-like convenience method to simply proceed with training across multiple epochs of the provided
