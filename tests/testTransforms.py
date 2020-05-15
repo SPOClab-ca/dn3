@@ -27,6 +27,22 @@ class TestTransforms(unittest.TestCase):
         self.dataset.clear_transforms()
         self.assertNotIn(self.transform, self.dataset._transforms)
 
+    def test_TransformAfterLOSO(self):
+        for i, (training, validating, testing) in enumerate(self.dataset.loso()):
+            with self.subTest(i=i):
+                self.assertIn(self.transform, training._transforms)
+                self.assertIn(self.transform, validating._transforms)
+                self.assertIn(self.transform, testing._transforms)
+                train, val, test = testing.split(testing_sess_ids=['sess1'])
+                self.assertIn(self.transform, test._transforms)
+
+    def test_TransformAfterLMSO(self):
+        for i, (training, validating, testing) in enumerate(self.dataset.lmso()):
+            with self.subTest(i=i):
+                self.assertIn(self.transform, training._transforms)
+                self.assertIn(self.transform, validating._transforms)
+                self.assertIn(self.transform, testing._transforms)
+
     def test_ZScoreTransform(self):
         i = 0
         for x, y in self.dataset:

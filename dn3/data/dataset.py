@@ -662,8 +662,14 @@ class Dataset(DN3ataset, ConcatDataset):
         return self.cumulative_sizes[-1]
 
     def _make_like_me(self, people: list):
-        like_me = Dataset({p: self._thinkers[p] for p in people}, self.dataset_id.item(), self.task_id.item(),
-                          self.return_person_id, self.return_session_id, self.return_dataset_id, self.return_task_id)
+        if len(people) == 1:
+            like_me = self._thinkers[people[0]].clone()
+        else:
+            dataset_id = self.dataset_id.item() if self.dataset_id is not None else None
+            task_id = self.task_id.item() if self.dataset_id is not None else None
+
+            like_me = Dataset({p: self._thinkers[p] for p in people}, dataset_id, task_id, self.return_person_id,
+                              self.return_session_id, self.return_dataset_id, self.return_task_id)
         for x in self._transforms:
             like_me.add_transform(x)
         return like_me
@@ -678,13 +684,12 @@ class Dataset(DN3ataset, ConcatDataset):
 
             training = self._make_like_me(training)
 
-            validating = self._make_like_me(val) if len(val) > 1 else self._thinkers[val[0]]
+            validating = self._make_like_me(val)
             _val_set = set(validating.get_thinkers()) if len(val) > 1 else {validating.person_id}
 
-            testing = self._make_like_me(test) if len(test) > 1 else self._thinkers[test[0]]
+            testing = self._make_like_me(test)
             _test_set = set(testing.get_thinkers()) if len(test) > 1 else {testing.person_id}
 
-            print(_val_set.intersection(_test_set))
             if len(_val_set.intersection(_test_set)) > 0:
                 raise ValueError("Validation and test overlap with ids: {}".format(_val_set.intersection(_test_set)))
 
