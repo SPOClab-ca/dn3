@@ -4,8 +4,8 @@ import mne.io as loader
 
 from pathlib import Path
 from mne import pick_types
-from data.dataset import Dataset, RawTorchRecording, EpochTorchRecording, Thinker
-from data.utils import make_epochs_from_raw
+from dn3.data.dataset import Dataset, RawTorchRecording, EpochTorchRecording, Thinker
+from dn3.data.utils import make_epochs_from_raw
 
 
 _SUPPORTED_EXTENSIONS = {
@@ -57,7 +57,7 @@ class ExperimentConfig:
                 raise DN3ConfigException("Dataset: {} not found in {}".format(
                     ds, [k for k in working_config.keys() if k != 'DN3']))
             self.datasets[ds] = DatasetConfig(ds, working_config.pop(ds))
-        print("Found {} dataset(s).".format(len(self.datasets)))
+        print("Found {} datasets.".format(len(self.datasets), "s" if len(self.datasets) > 0 else ""))
 
         self.experiment = working_config.pop('DN3')
         if adopt_auxiliaries:
@@ -126,7 +126,7 @@ class DatasetConfig:
             raise DN3ConfigException("The toplevel {} for dataset {} does not exists".format(self.toplevel, self.name))
 
         # The rest
-        if adopt_auxiliaries:
+        if adopt_auxiliaries and len(config) > 0:
             print("Adding additional configuration entries: {}".format(config.keys()))
             self.__dict__.update(config)
 
@@ -216,10 +216,10 @@ class DatasetConfig:
 
         raw = self._load_raw(session)
         if self._create_raw_recordings:
-            return RawTorchRecording(raw, sample_len=int(self.tlen * raw.info['sfreq']), stride=self.stride)
+            return RawTorchRecording(raw, self.tlen, stride=self.stride)
 
-        epochs = make_epochs_from_raw(raw, self.tmin, self.tlen, baseline=self.baseline, decim=self.decimate,
-                                      filter_bp=self.bandpass, drop_bad=self.drop_bad)
+        epochs = make_epochs_from_raw(raw, self.tmin, self.tlen, event_ids=self.events, baseline=self.baseline,
+                                      decim=self.decimate, filter_bp=self.bandpass, drop_bad=self.drop_bad)
         picks = pick_types(raw.info, **{t: t in self.picks for t in self._PICK_TYPES}) if self._picks_as_types() \
             else self.picks
 

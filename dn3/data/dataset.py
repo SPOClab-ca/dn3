@@ -4,10 +4,10 @@ import copy
 import bisect
 import numpy as np
 
-from transform.preprocess import Preprocessor
-from transform.transform import BaseTransform
+from dn3.transforms.preprocess import Preprocessor
+from dn3.transforms.basic import BaseTransform
 from .utils import min_max_normalize as _min_max_normalize
-from .utils import rand_split
+from .utils import rand_split, unfurl
 
 from abc import ABC
 from collections import OrderedDict
@@ -50,7 +50,7 @@ class DN3ataset(TorchDataset):
         cloned : DN3ataset
                  New copy of this object.
         """
-        return copy.copy(self)
+        return copy.deepcopy(self)
 
     def add_transform(self, transform):
         """
@@ -65,9 +65,29 @@ class DN3ataset(TorchDataset):
             self._transforms.append(transform)
 
     def clear_transforms(self):
+        """
+        Remove all added transforms from dataset.
+        """
         self._transforms = list()
 
     def preprocess(self, preprocessor: Preprocessor, apply_transform=True):
+        """
+        Applies a preprocessor to the dataset
+
+        Parameters
+        ----------
+        preprocessor : Preprocessor
+                       A preprocessor to be applied
+        apply_transform : bool
+                          Whether to apply the transform to this dataset (and all members e.g thinkers or sessions)
+                          after preprocessing them. Alternatively, the preprocessor is returned for manual application
+                          of its transform through :meth:`Preprocessor.get_transform()`
+
+        Returns
+        ---------
+        preprocessor : Preprocessor
+                       The preprocessor after application to all relevant thinkers
+        """
         raise NotImplementedError
 
 
@@ -80,8 +100,8 @@ class _Recording(DN3ataset, ABC):
         self.info = info
         self._recording_channels = [ch['ch_name'] for ch in info['chs']]
         self._recording_sfreq = info['sfreq']
-        self._recording_len = int(self._recording_sfreq) * tlen
-        assert self._sfreq is not None
+        self._recording_len = int(self._recording_sfreq * tlen)
+        assert self._recording_sfreq is not None
         self.session_id = session_id
         self.person_id = person_id
 
@@ -107,7 +127,7 @@ class _Recording(DN3ataset, ABC):
     def sequence_length(self):
         sequence_length = self._recording_len
         for xform in self._transforms:
-            sequence_length = xform.new_channels(sequence_length)
+            sequence_length = xform.new_sequence_length(sequence_length)
         return sequence_length
 
 
@@ -130,7 +150,7 @@ class RawTorchRecording(_Recording):
           The number of samples to skip between each starting offset of loaded samples.
     """
 
-    def __init__(self, raw: mne.io.Raw, tlen, info, session_id=0, person_id=0, stride=1, picks=None,
+    def __init__(self, raw: mne.io.Raw, tlen, session_id=0, person_id=0, stride=1, picks=None,
                  normalizer=_min_max_normalize, **kwargs):
 
         """
@@ -150,7 +170,7 @@ class RawTorchRecording(_Recording):
         stride : int
               The number of samples to skip between each starting offset of loaded samples.
         """
-        super().__init__(info, session_id, person_id, tlen)
+        super().__init__(raw.info, session_id, person_id, tlen)
         self.raw = raw
         self.stride = stride
         self.max = kwargs.get('max', None)
@@ -196,7 +216,7 @@ class RawTorchRecording(_Recording):
 class EpochTorchRecording(_Recording):
 
     def __init__(self, epochs: mne.Epochs, session_id=0, person_id=0, force_label=None, cached=False,
-                 normalizer=_min_max_normalize, picks=None):
+                 normalizer=_min_max_normalize, picks=None, event_mapping=None):
         super().__init__(epochs.info, session_id, person_id, epochs.tmax - epochs.tmin)
         self.epochs = epochs
         self._cache = [None for _ in range(len(epochs.events))] if cached else None
@@ -235,6 +255,16 @@ class EpochTorchRecording(_Recording):
         self.epochs = preprocessor(recording=self)
         if apply_transform:
             self.add_transform(preprocessor.get_transform())
+
+    def event_mapping(self):
+        """
+        Maps the labels returned by this to the events as recorded in the original annotations or stim channel.
+
+        Returns
+        -------
+        mapping : dict
+                  Keys are the class labels used by this object, values are the original event signifier.
+        """
 
 
 class Thinker(DN3ataset, ConcatDataset):
@@ -288,7 +318,7 @@ class Thinker(DN3ataset, ConcatDataset):
         sfreq = set(self.sessions[s].sfreq for s in self.sessions)
         if len(sfreq) > 1:
             print("Warning: Multiple sampling frequency values found. Over/re-sampling may be necessary.")
-            return list(sfreq)
+            return unfurl(sfreq)
         return sfreq.pop()
 
     @property
@@ -296,7 +326,7 @@ class Thinker(DN3ataset, ConcatDataset):
         channels = set(self.sessions[s].channels for s in self.sessions)
         if len(channels) > 1:
             print("Warning: Multiple channel sets found. A consistent mapping like Deep1010 may be prudent.")
-            return list(channels)
+            return unfurl(channels)
         return channels.pop()
 
     @property
@@ -304,7 +334,7 @@ class Thinker(DN3ataset, ConcatDataset):
         sequence_length = set(self.sessions[s].channels for s in self.sessions)
         if len(sequence_length) > 1:
             print("Warning: Multiple sequence lengths found. A cropping transformation may be in order.")
-            return list(sequence_length)
+            return unfurl(sequence_length)
         return sequence_length.pop()
 
     def __add__(self, sessions):
@@ -324,12 +354,12 @@ class Thinker(DN3ataset, ConcatDataset):
     def __getitem__(self, item, return_id=False):
         x = ConcatDataset.__getitem__(self, item)
         if self.return_session_id:
-            dataset_idx = torch.tensor(bisect.bisect_right(self.cumulative_sizes, item))
+            session_idx = torch.tensor(bisect.bisect_right(self.cumulative_sizes, item))
             if isinstance(x, Iterable):
                 x = list(x)
-                x.insert(-1, dataset_idx)
+                x.insert(-1, session_idx)
             else:
-                x = [x, dataset_idx]
+                x = [x, session_idx]
         return x
 
     def __len__(self):
@@ -426,10 +456,12 @@ class Thinker(DN3ataset, ConcatDataset):
         return preprocessor
 
     def clear_transforms(self):
+        self._transforms = list()
         for s in self.sessions.values():
             s.clear_transforms()
 
     def add_transform(self, transform):
+        self._transforms.append(transform)
         for s in self.sessions.values():
             s.add_transform(transform)
 
@@ -444,7 +476,7 @@ class Dataset(DN3ataset, ConcatDataset):
       - annotation paradigm:
         - consistent event types
     """
-    def __init__(self, thinkers, dataset_id=None, task_id=None, return_person_id=False, return_session_id=False,
+    def __init__(self, thinkers, dataset_id=None, task_id=None, return_session_id=False, return_person_id=False,
                  return_dataset_id=False, return_task_id=False):
         """
         Collects recordings from multiple people, intended to be of the same task, at different times or
@@ -504,6 +536,11 @@ class Dataset(DN3ataset, ConcatDataset):
         else:
             raise TypeError("Thinkers must be iterable or already processed dict.")
 
+        def set_sess_return(name, thinker: Thinker):
+            thinker.return_session_id = return_session_id
+
+        self._apply(set_sess_return)
+
         self.dataset_id = torch.tensor(dataset_id) if dataset_id is not None else None
         self.task_id = torch.tensor(task_id) if task_id is not None else None
 
@@ -514,6 +551,10 @@ class Dataset(DN3ataset, ConcatDataset):
                 self._thinkers[p_id].sessions[s_id].session_id = s_id
                 self._thinkers[p_id].sessions[s_id].person_id = p_id
         ConcatDataset.__init__(self, self._thinkers.values())
+
+    def _apply(self, lam_fn):
+        for th_id, thinker in self._thinkers.items():
+            lam_fn(th_id, thinker)
 
     def __add__(self, thinker, return_session_id=None):
         assert isinstance(thinker, Thinker)
@@ -583,7 +624,7 @@ class Dataset(DN3ataset, ConcatDataset):
         sfreq = set(self._thinkers[t].sfreq for t in self._thinkers)
         if len(sfreq) > 1:
             print("Warning: Multiple sampling frequency values found. Over/re-sampling may be necessary.")
-            return list(sfreq)
+            return unfurl(sfreq)
         return sfreq.pop()
 
     @property
@@ -591,7 +632,7 @@ class Dataset(DN3ataset, ConcatDataset):
         channels = set(self._thinkers[t].channels for t in self._thinkers)
         if len(channels) > 1:
             print("Warning: Multiple channel sets found. A consistent mapping like Deep1010 may be prudent.")
-            return list(channels)
+            return unfurl(channels)
         return channels.pop()
 
     @property
@@ -599,7 +640,7 @@ class Dataset(DN3ataset, ConcatDataset):
         sequence_length = set(self._thinkers[t].channels for t in self._thinkers)
         if len(sequence_length) > 1:
             print("Warning: Multiple sequence lengths found. A cropping transformation may be in order.")
-            return list(sequence_length)
+            return unfurl(sequence_length)
         return sequence_length.pop()
 
     def get_thinkers(self):
@@ -734,11 +775,11 @@ class Dataset(DN3ataset, ConcatDataset):
         yield from self._generate_splits(validation_splits, test_splits)
 
     def add_transform(self, transform, thinkers=None):
-        for thinker in self._thinkers.values():
-            thinker.add_transform(transform)
+        self._transforms.append(transform)
+        self._apply(lambda name, thinker: thinker.add_transform(transform))
 
     def clear_transforms(self):
-        for thinker in self._thinkers.values():
-            thinker.clear_transforms()
+        self._transforms = list()
+        self._apply(lambda name, thinker: thinker.clear_transforms())
 
 # TODO Convenience functions/classes for leave one and leave multiple datasets out.

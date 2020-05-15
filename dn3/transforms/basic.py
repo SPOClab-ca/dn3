@@ -41,9 +41,9 @@ class BaseTransform(object):
 
         Returns
         -------
-        channels : ndarray
-                   An array with the channel names as they are after this transformation. Supports conversion of 1D
-                   channel set into more dimensions, e.g. a list of channels into a rectangular grid.
+        new_channels : ndarray
+                      An array with the channel names as they are after this transformation. Supports conversion of 1D
+                      channel set into more dimensions, e.g. a list of channels into a rectangular grid.
         """
         return old_channels
 
@@ -58,7 +58,7 @@ class BaseTransform(object):
 
         Returns
         -------
-        sfreq : float
+        new_sfreq : float
         """
         return old_sfreq
 
@@ -73,9 +73,50 @@ class BaseTransform(object):
 
         Returns
         -------
-        sequence_length : int
+        new_sequence_length : int
         """
         return old_sequence_length
+
+
+class ZScore(BaseTransform):
+
+    def __call__(self, *inputs, **kwargs):
+        x = inputs[0]
+        x = (x - x.mean()) / x.std()
+        if len(inputs) > 1:
+            return (x, *inputs[1:])
+        else:
+            return x
+
+
+class TemporalPadding(BaseTransform):
+
+    def __init__(self, start_padding, end_padding, mode='constant', constant_value=0):
+        """
+        Pad the number of samples.
+
+        Parameters
+        ----------
+        start_padding : int
+                        The number of padded samples to add to the beginning of a trial
+        end_padding : int
+                      The number of padded samples to add to the end of a trial
+        mode : str
+               See `pytorch documentation <https://pytorch.org/docs/stable/nn.functional.html#torch.nn.functional.pad>`_
+        constant_value : float
+               If mode is 'constant' (the default), the value to compose the samples of.
+        """
+        self.start_padding = start_padding
+        self.end_padding = end_padding
+        self.mode = mode
+        self.constant_value = constant_value
+
+    def __call__(self, *inputs, **kwargs):
+        pad = [self.start_padding, self.end_padding] + [0 for _ in range(2, inputs.shape[-1])]
+        return (torch.nn.functional.pad(inputs[0], pad, mode=self.mode, value=self.constant_value), *inputs[1:])
+
+    def new_sequence_length(self, old_sequence_length):
+        return old_sequence_length + self.start_padding + self.end_padding
 
 
 class MappingDeep1010(BaseTransform):

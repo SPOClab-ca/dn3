@@ -1,5 +1,5 @@
 import torch
-from data.dataset import DN3ataset
+from dn3.data.dataset import DN3ataset
 from .trainable import BaseTrainable
 
 

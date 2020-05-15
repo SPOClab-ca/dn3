@@ -3,7 +3,7 @@ import tqdm
 
 from pandas import DataFrame
 from collections import OrderedDict
-from data.dataset import DN3ataset
+from dn3.data.dataset import DN3ataset
 
 
 class BaseTrainable(object):

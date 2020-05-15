@@ -1,8 +1,9 @@
+import mne
 import unittest
 import os
 
 from pathlib import Path
-from configuratron.config import ExperimentConfig
+from dn3.configuratron.config import ExperimentConfig
 
 _DATASET_URL = "https://physionet.org/files/eegmmidb/1.0.0/"
 _TEST_DATASET_LOCATION = "./test_dataset/"
@@ -17,9 +18,15 @@ def download_test_dataset():
     os.system("wget -r -N -c -np -P {} {}".format(_TEST_DATASET_LOCATION, _DATASET_URL))
 
 
+
+def create_mmi_dataset():
+    pass
+
+
 class TestExperimentConfiguration(unittest.TestCase):
 
     def setUp(self) -> None:
+        mne.set_log_level(False)
         download_test_dataset()
         self.experiment_config = ExperimentConfig('./test_dataset_config.yml')
         pass
@@ -46,6 +53,7 @@ class TestDatasetConfiguration(unittest.TestCase):
     SFREQ = 160
 
     def setUp(self) -> None:
+        mne.set_log_level(False)
         self.experiment_config = ExperimentConfig('./test_dataset_config.yml')
         self.minimal_raw = self.experiment_config.datasets['mmidb_minimally_specified_raw']
         self.minimal_epoch = self.experiment_config.datasets['mmidb_minimally_specified_epoch']

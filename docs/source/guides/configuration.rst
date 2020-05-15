@@ -122,8 +122,38 @@ tmin *(float)*
   If specified, epochs the recordings into trials at each event (can be modified by *events* config below) onset with
   respect to *tmin*. So if *tmin* is negative, happens before the event marker, positive is after, and 0 is at the
   onset.
-events *(list)*
-  A list of event codes to use, if this is used, anything events unspecified will be ignored. Otherwise, all are used.
+use_annotations *(bool)*
+  If specified, parse events from annotations. This is either because the annotations are correct and the stim channel
+  must be ignored, or to simply suppress a warning that would otherwise be printed as annotations are the fall-back
+  when a stim channel is not found.
+events *(list, map/dict)*
+  This can be formatted in one of three ways:
+
+  1. Unspecified - all events parsed by `find_events() <https://mne.tools/stable/generated/mne.find_events.html>`_,
+     falling-back to `events_from_annotations() <https://mne.tools/stable/generated/mne.events_from_annotations.html>`_
+  2. A list of event numbers that filter the set found from the above.
+  3. Labels for known events in a standard YAML form, filtering as above, e.g.:
+
+     .. code-block:: yaml
+
+        events:
+          left_hand: T1
+          right_hand: T2
+
+     The values may be strings to match annotations. If numeric, the assumption is that a stim channel is being used,
+     but will fall-back to annotations.
+
+  In all cases, the codes from the stim channel or annotations will not in fact correspond to the subsequent labels
+  loaded. This is because the labels don't necessarily fit a minimal spanning set starting with 0. In other words, if
+  I had say, 4 labels, they are not guaranteed to be 0, 1, 2 and 3 as is needed for loss functions downstream.
+
+  The latter two configuration options above *do however* provide some control over this, with the order of the listed
+  events corresponding to the index of the used label. e.g. *left_hand* and *right_hand* above have class labels
+  0 and 1 respectively.
+
+  If the reasoning for the above is not clear, not to worry. Just know you can't assume that annotated event 1 is label
+  1. Instead use :meth:`EpochTorchRecording.get_mapping` to resolve labels to the original annotations or event codes.
+
 picks *(list)*
   This option can take two forms:
 
