@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 
 class BaseTrainable(object):
 
-    def __init__(self, optimizer=None, scheduler=None, cuda=False):
+    def __init__(self, optimizer=None, scheduler=None, cuda=False, **kwargs):
         """
         Initialization of the Base Trainable object. Any learning procedure that leverages DN3atasets should subclass
         this base class.
@@ -21,12 +21,27 @@ class BaseTrainable(object):
         cuda
         """
         self.cuda = cuda
-        self.optimizer = torch.optim.Adam(self.parameters()) if optimizer is None else optimizer
-        if isinstance(cuda, bool) and cuda:
-            self.device = "cuda" if cuda else "cpu"
+        if isinstance(cuda, bool):
+            cuda = "cuda" if cuda else "cpu"
         assert isinstance(cuda, str)
         self.device = torch.device(cuda)
         self.scheduler = scheduler
+
+        _before_members = set(self.__dict__.keys())
+        self.build_network(**kwargs)
+        new_members = _before_members.difference(self.__dict__.keys())
+        for member in new_members:
+            if isinstance(self.__dict__[member], torch.nn.Module):
+                self.__dict__[member] = self.__dict__[member].to(self.device)
+
+        self.optimizer = torch.optim.Adam(self.parameters()) if optimizer is None else optimizer
+
+    def build_network(self, **kwargs):
+        """
+        This method is used to add trainable parameters to the trainable. Rather than placing objects for training
+        in the __init__ method, they should be placed here.
+        """
+        raise NotImplementedError
 
     def parameters(self):
         """
@@ -79,9 +94,10 @@ class BaseTrainable(object):
 
         Returns
         -------
-        metrics : OrderedDict
+        metrics : OrderedDict, None
                   Dictionary of metric quantities.
         """
+        return OrderedDict()
 
     def backward(self, loss):
         self.optimizer.zero_grad()
@@ -145,9 +161,12 @@ class BaseTrainable(object):
 class StandardClassifier(BaseTrainable):
 
     def __init__(self, classifier: torch.nn.Module, loss_fn=None, cuda=False):
-        super().__init__(cuda=cuda)
-        self.classifier = classifier.to(self.device)
+        super().__init__(cuda=cuda, classifier=classifier)
         self.loss = torch.nn.CrossEntropyLoss().to(self.device) if loss_fn is None else loss_fn.to(self.device)
+
+    def build_network(self, classifier=None):
+        assert classifier is not None
+        self.classifier = classifier
 
     def parameters(self):
         return self.classifier.parameters()
@@ -190,8 +209,8 @@ class StandardClassifier(BaseTrainable):
         def get_batch(iterator):
             return [x.to(self.device) for x in next(iterator)]
 
-        validation_log = DataFrame()
-        train_log = DataFrame()
+        validation_log = list()
+        train_log = list()
 
         epoch_bar = tqdm.trange(1, epochs+1, desc="Epoch")
         for epoch in epoch_bar:
@@ -200,7 +219,10 @@ class StandardClassifier(BaseTrainable):
             for iteration in pbar:
                 inputs = get_batch(data_iterator)
                 outputs = self.forward(*inputs)
+                loss = self.calculate_loss(inputs, outputs)
+                self.backward(loss)
                 train_metrics = self.calculate_metrics(inputs, outputs)
+                train_metrics.setdefault('loss', loss.item())
                 pbar.set_postfix(train_metrics)
                 train_metrics['epoch'] = epoch
                 train_metrics['iteration'] = iteration
@@ -209,13 +231,14 @@ class StandardClassifier(BaseTrainable):
                 if callable(step_callback):
                     step_callback(train_metrics)
 
-            val_metrics = self.evaluate(validation_dataset)
+            if validation_dataset is not None:
+                val_metrics = self.evaluate(validation_dataset)
 
-            self.standard_logging(val_metrics, "End of Epoch {}".format(epoch))
+                self.standard_logging(val_metrics, "End of Epoch {}".format(epoch))
 
-            val_metrics['epoch'] = epoch
-            validation_log.append(val_metrics)
-            if callable(epoch_callback):
-                epoch_callback(val_metrics)
+                val_metrics['epoch'] = epoch
+                validation_log.append(val_metrics)
+                if callable(epoch_callback):
+                    epoch_callback(val_metrics)
 
-        return train_log, validation_log
+        return DataFrame(train_log), DataFrame(validation_log)

@@ -7,21 +7,13 @@ from .channels import map_channels_1010
 class BaseTransform(object):
     """
     Transforms are, for the most part, simply operations that are performed on the loaded tensors when they are fetched
-    via the :meth:`transform` method. Ideally this is implemented with pytorch operations for ease of execution graph
+    via the :meth:`__call__` method. Ideally this is implemented with pytorch operations for ease of execution graph
      integration.
     """
     def __init__(self, only_trial_data=True):
         self.only_trial_data = only_trial_data
 
-    def __call__(self, *inputs):
-        if self.only_trial_data:
-            x = self.transform(inputs[0])
-            inputs = (x, *inputs[1:])
-        else:
-            inputs = self.transform(*inputs)
-        return inputs
-
-    def transform(self, x):
+    def __call__(self, *x):
         """
         Modifies a batch of tensors.
         Parameters
@@ -89,7 +81,7 @@ class ZScore(BaseTransform):
     """
     Z-score normalization of trials
     """
-    def transform(self, x):
+    def __call__(self, x):
         return (x - x.mean()) / x.std()
 
 
@@ -116,7 +108,7 @@ class TemporalPadding(BaseTransform):
         self.mode = mode
         self.constant_value = constant_value
 
-    def transform(self, x):
+    def __call__(self, x):
         pad = [self.start_padding, self.end_padding] + [0 for _ in range(2, x.shape[-1])]
         return torch.nn.functional.pad(x, pad, mode=self.mode, value=self.constant_value)
 
@@ -135,7 +127,7 @@ class MappingDeep1010(BaseTransform):
         self.add_scale_ind = add_scale_ind
         self.return_mask = return_mask
 
-    def transform(self, x):
+    def __call__(self, x):
         x = (x.transpose(1, 0) @ self.mapping).transpose(1, 0)
         return (x, self.mapping.sum(dim=0))
 

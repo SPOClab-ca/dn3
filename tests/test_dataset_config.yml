@@ -13,21 +13,30 @@ mmidb_minimally_specified_raw:
 
 mmidb_minimally_specified_epoch:
   toplevel: ./test_dataset/physionet.org/files/eegmmidb/
+  events:
+    - T1
+    - T2
   tlen: 3
   tmin: -0.5
 
 mmidb_fully_specified:
   toplevel: ./test_dataset/physionet.org/files/eegmmidb/
+  tmin: -0.25
   tlen: 3
   name: "MMIDB"
   events:
-    - 0
-    - 3
+    T1: 8
+    T2: 5
   picks:
     - eeg
+  exclude_people:
+    - S088
+    - S090
+    - S092
+    - S100
   decimate: 2
-  baseline: -0.5
-  bandpass: [0.1, 40]
+  baseline: [-0.25, ~]
+  bandpass: [0.1, 20]
   drop_bad: True
   max: 1.5
   min: -1.5

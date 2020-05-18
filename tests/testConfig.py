@@ -18,9 +18,9 @@ def download_test_dataset():
     os.system("wget -r -N -c -np -P {} {}".format(_TEST_DATASET_LOCATION, _DATASET_URL))
 
 
-
-def create_mmi_dataset():
-    pass
+def create_mmi_dataset_from_config():
+    experiment = ExperimentConfig('./test_dataset_config.yml')
+    return experiment.datasets['mmi_fully_specified'].auto_construct_dataset()
 
 
 class TestExperimentConfiguration(unittest.TestCase):
@@ -50,7 +50,8 @@ class TestDatasetConfiguration(unittest.TestCase):
     NUM_SUBJECTS = 109
     RAW_TRIALS = 10000
     EPOCH_TRIALS = 100
-    SFREQ = 160
+    SFREQ = 160.0
+    ALT_SFREQ = 128.0
 
     def setUp(self) -> None:
         mne.set_log_level(False)
@@ -59,10 +60,6 @@ class TestDatasetConfiguration(unittest.TestCase):
         self.minimal_epoch = self.experiment_config.datasets['mmidb_minimally_specified_epoch']
         self.fully = self.experiment_config.datasets['mmidb_fully_specified']
 
-    def test_AllSpecificationsFindFiles(self):
-        three_values = self.minimal_raw.auto_mapping() == self.minimal_epoch.auto_mapping() == self.fully.auto_mapping()
-        self.assertTrue(three_values)
-
     def test_MinimallySpecifiedRawConstruct(self):
         dataset = self.minimal_raw.auto_construct_dataset()
         self.assertEqual(self.NUM_SUBJECTS, len(dataset.get_thinkers()))
@@ -70,11 +67,14 @@ class TestDatasetConfiguration(unittest.TestCase):
     def test_MinimallySpecifiedEpochConstruct(self):
         dataset = self.minimal_epoch.auto_construct_dataset()
         self.assertEqual(self.NUM_SUBJECTS, len(dataset.get_thinkers()))
+        self.assertSetEqual(set(dataset.sfreq), {self.SFREQ, self.ALT_SFREQ})
 
     def test_FullySpecifiedConstruct(self):
         dataset = self.fully.auto_construct_dataset()
-        self.assertEqual(self.NUM_SUBJECTS, len(dataset.get_thinkers()))
-        self.assertEqual(dataset.sfreq, )
+        # Check the exclusion worked
+        self.assertEqual(self.NUM_SUBJECTS - 4, len(dataset.get_thinkers()))
+        # After exclusion, should have single SFREQ
+        self.assertEqual(self.SFREQ / self.fully.decimate, dataset.sfreq)
 
 
 if __name__ == '__main__':

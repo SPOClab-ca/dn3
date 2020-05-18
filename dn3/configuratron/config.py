@@ -3,9 +3,10 @@ import tqdm
 import mne.io as loader
 
 from pathlib import Path
+from collections import OrderedDict
 from mne import pick_types
 from dn3.data.dataset import Dataset, RawTorchRecording, EpochTorchRecording, Thinker
-from dn3.data.utils import make_epochs_from_raw
+from dn3.utils import make_epochs_from_raw, DN3ConfigException
 
 
 _SUPPORTED_EXTENSIONS = {
@@ -14,13 +15,6 @@ _SUPPORTED_EXTENSIONS = {
     '.fif': loader.read_raw_fif,
     # TODO: add much more support, at least all of MNE-python
 }
-
-
-class DN3ConfigException(BaseException):
-    """
-    Exception to be triggered when DN3-configuration parsing fails.
-    """
-    pass
 
 
 class ExperimentConfig:
@@ -96,16 +90,22 @@ class DatasetConfig:
         # self.tlen = get_pop('tlen')
         self.tmin = get_pop('tmin')
         self._create_raw_recordings = self.tmin is None
-        self.events = get_pop('events')
-        if self.events is not None and not isinstance(self.events, list):
-            raise DN3ConfigException("Specifying desired events must be done as a list. Not {}.".format(self.events))
         self.picks = get_pop('picks')
-        if self.picks is not None and not isinstance(self.events, list):
-            raise DN3ConfigException("Specifying picks must be done as a list. Not {}.".format(self.events))
+        if self.picks is not None and not isinstance(self.picks, list):
+            raise DN3ConfigException("Specifying picks must be done as a list. Not {}.".format(self.picks))
         self.decimate = get_pop('decimate', 1)
         self.baseline = get_pop('baseline')
+        if self.baseline is not None:
+            self.baseline = tuple(self.baseline)
         self.bandpass = get_pop('bandpass')
         self.drop_bad = get_pop('drop_bad', False)
+        self.events = get_pop('events')
+        if self.events is not None:
+            if not isinstance(self.events, (dict, list)):
+                self.events = {0: self.events}
+            elif isinstance(self.events, list):
+                self.events = dict(zip(self.events, range(len(self.events))))
+            self.events = OrderedDict(self.events)
 
         # other options
         self.data_max = get_pop('max')
@@ -139,6 +139,8 @@ class DatasetConfig:
                    'seeg', 'dipole', 'gof', 'bio', 'ecog', 'fnirs', 'csd', ]
 
     def _picks_as_types(self):
+        if self.picks is None:
+            return False
         for pick in self.picks:
             if pick not in self._PICK_TYPES:
                 return False
@@ -176,12 +178,14 @@ class DatasetConfig:
     def auto_mapping(self, files=None):
         """
         Generates a mapping of sessions and people of the dataset, assuming files are stored in the structure:
-         `toplevel`/(*optional - <version>)/<person-id>/<session-id>.{ext}
+        `toplevel`/(*optional - <version>)/<person-id>/<session-id>.{ext}
+
         Parameters
         -------
         files : list
                 Optional list of files (convertible to `Path` objects, e.g. relative or absolute strings) to be used.
                 If not provided, will use `scan_toplevel()`.
+
         Returns
         -------
         mapping : dict
@@ -192,11 +196,14 @@ class DatasetConfig:
         mapping = dict()
         for sess_file in files:
             sess_file = Path(sess_file)
+            if sess_file.stem in self.exclude_sessions or sess_file.name in self.exclude_sessions:
+                continue
             person = sess_file.parent.name
-            if person in mapping:
-                mapping[person].append(str(sess_file))
-            else:
-                mapping[person] = [str(sess_file)]
+            if person not in self.exclude_people:
+                if person in mapping:
+                    mapping[person].append(str(sess_file))
+                else:
+                    mapping[person] = [str(sess_file)]
         return mapping
 
     def _load_raw(self, path: Path):
@@ -218,15 +225,25 @@ class DatasetConfig:
         if self._create_raw_recordings:
             return RawTorchRecording(raw, self.tlen, stride=self.stride)
 
+        use_annotations = self.events is not None and True in [isinstance(x, str) for x in self.events.keys()]
         epochs = make_epochs_from_raw(raw, self.tmin, self.tlen, event_ids=self.events, baseline=self.baseline,
-                                      decim=self.decimate, filter_bp=self.bandpass, drop_bad=self.drop_bad)
+                                      decim=self.decimate, filter_bp=self.bandpass, drop_bad=self.drop_bad,
+                                      use_annotations=use_annotations)
         picks = pick_types(raw.info, **{t: t in self.picks for t in self._PICK_TYPES}) if self._picks_as_types() \
             else self.picks
 
-        return EpochTorchRecording(epochs, picks=picks)
+        return EpochTorchRecording(epochs, picks=picks, event_mapping=self.events)
 
     def _construct_thinker_from_config(self, thinker: list):
-        return Thinker({Path(sess).name: self._construct_session_from_config(sess) for sess in thinker})
+        sessions = dict()
+        for sess_name in thinker:
+            try:
+                sessions[Path(sess_name).name] = self._construct_session_from_config(sess_name)
+            except DN3ConfigException:
+                tqdm.tqdm.write("Skipping {}. None of the listed events found.".format(sess_name))
+        if len(sessions) == 0:
+            raise DN3ConfigException
+        return Thinker(sessions)
 
     def auto_construct_dataset(self, mapping=None, **dsargs):
         """
@@ -249,7 +266,7 @@ class DatasetConfig:
 
         Returns
         -------
-        dataset : :any:`Dataset`
+        dataset : Dataset
                 An instance of :any:`Dataset`, constructed according to mapping.
         """
         if mapping is None:
@@ -259,7 +276,10 @@ class DatasetConfig:
                                                                             "Raw" if self._create_raw_recordings else
                                                                             "Epoched", len(mapping)))
         description = "Loading {}".format(self.name)
-        return Dataset({t: self._construct_thinker_from_config(mapping[t]) for t in tqdm.tqdm(mapping,
-                                                                                              desc=description,
-                                                                                              unit='person')},
-                       **dsargs)
+        thinkers = dict()
+        for t in tqdm.tqdm(mapping, desc=description, unit='person'):
+            try:
+                thinkers[t] = self._construct_thinker_from_config(mapping[t])
+            except DN3ConfigException:
+                tqdm.tqdm.write("None of the sessions for {} were usable. Skipping...".format(t))
+        return Dataset(thinkers, **dsargs)

@@ -4,10 +4,10 @@ import copy
 import bisect
 import numpy as np
 
-from dn3.transforms.preprocess import Preprocessor
+from dn3.transforms.preprocessors import Preprocessor
 from dn3.transforms.basic import BaseTransform
-from .utils import min_max_normalize as _min_max_normalize
-from .utils import rand_split, unfurl
+from dn3.utils import min_max_normalize as _min_max_normalize
+from dn3.utils import rand_split, unfurl
 
 from abc import ABC
 from collections import OrderedDict
@@ -67,6 +67,19 @@ class DN3ataset(TorchDataset):
         if isinstance(transform, BaseTransform):
             self._transforms.append(transform)
 
+    def _execute_transforms(self, *x):
+        for transform in self._transforms:
+            assert isinstance(transform, BaseTransform)
+            if transform.only_trial_data:
+                new_x = transform(x[0])
+                if isinstance(new_x, (list, tuple)):
+                    x = (*new_x, *x[1:])
+                else:
+                    x = (new_x, *x[1:])
+            else:
+                x = transform(*x)
+        return x
+
     def clear_transforms(self):
         """
         Remove all added transforms from dataset.
@@ -121,7 +134,7 @@ class _Recording(DN3ataset, ABC):
 
     @property
     def channels(self):
-        channels = np.ndarray(self._recording_channels)
+        channels = np.array(self._recording_channels)
         for xform in self._transforms:
             channels = xform.new_channels(channels)
         return channels
@@ -202,11 +215,7 @@ class RawTorchRecording(_Recording):
             print("Replacing with appropriate random values for now...")
             x = torch.rand_like(x)
 
-        x = (x,)
-        for t in self._transforms:
-            x = t(*x)
-
-        return x
+        return self._execute_transforms(x)
 
     def __len__(self):
         return (self.raw.n_times - self.sequence_length) // self.stride
@@ -218,15 +227,33 @@ class RawTorchRecording(_Recording):
 
 
 class EpochTorchRecording(_Recording):
-
     def __init__(self, epochs: mne.Epochs, session_id=0, person_id=0, force_label=None, cached=False,
                  normalizer=_min_max_normalize, picks=None, event_mapping=None):
-        super().__init__(epochs.info, session_id, person_id, epochs.tmax - epochs.tmin)
+        """
+        Wraps :any:`Epoch` objects so that they conform to the :any:`Recording` structure.
+        Parameters
+        ----------
+        epochs
+        session_id
+        person_id
+        force_label
+        cached
+        normalizer
+        picks
+        event_mapping : dict, Optional
+                        Mapping of human-readable names to numeric codes used by `epochs`.
+        """
+        super().__init__(epochs.info, session_id, person_id, epochs.tmax - epochs.tmin + 1 / epochs.info['sfreq'])
         self.epochs = epochs
         self._cache = [None for _ in range(len(epochs.events))] if cached else None
         self.force_label = force_label if force_label is None else torch.tensor(force_label)
         self.normalizer = normalizer
         self.picks = picks
+        if event_mapping is None:
+            # mne parses this for us
+            event_mapping = epochs.event_id
+        reverse_mapping = {v: k for k, v in event_mapping.items()}
+        self.epoch_codes_to_class_labels = dict(enumerate(sorted(reverse_mapping.keys())))
 
     def __getitem__(self, index):
         ep = self.epochs[index]
@@ -245,12 +272,10 @@ class EpochTorchRecording(_Recording):
         else:
             x = self._cache[index]
 
-        x = (x, torch.from_numpy(ep.events[..., -1]).long() if self.force_label is None else self.force_label)
+        y = torch.tensor(self.epoch_codes_to_class_labels[ep.events[..., -1]]).squeeze().long() if \
+            self.force_label is None else self.force_label
 
-        for t in self._transforms:
-            x = t(*x)
-
-        return x
+        return self._execute_transforms(x, y)
 
     def __len__(self):
         return len(self.epochs.events)
@@ -269,6 +294,7 @@ class EpochTorchRecording(_Recording):
         mapping : dict
                   Keys are the class labels used by this object, values are the original event signifier.
         """
+        return self.event_labels_to_epoch_codes
 
 
 class Thinker(DN3ataset, ConcatDataset):
@@ -330,7 +356,7 @@ class Thinker(DN3ataset, ConcatDataset):
 
     @property
     def channels(self):
-        channels = set(self.sessions[s].channels for s in self.sessions)
+        channels = set(tuple(self.sessions[s].channels) for s in self.sessions)
         if len(channels) > 1:
             print("Warning: Multiple channel sets found. A consistent mapping like Deep1010 may be prudent.")
             return unfurl(channels)
@@ -338,7 +364,7 @@ class Thinker(DN3ataset, ConcatDataset):
 
     @property
     def sequence_length(self):
-        sequence_length = set(self.sessions[s].channels for s in self.sessions)
+        sequence_length = set(self.sessions[s].sequence_length for s in self.sessions)
         if len(sequence_length) > 1:
             print("Warning: Multiple sequence lengths found. A cropping transformation may be in order.")
             return unfurl(sequence_length)
@@ -362,14 +388,8 @@ class Thinker(DN3ataset, ConcatDataset):
         x = ConcatDataset.__getitem__(self, item)
         if self.return_session_id:
             session_idx = torch.tensor(bisect.bisect_right(self.cumulative_sizes, item))
-            x = list(x)
-            x.insert(-1, session_idx)
-            x = tuple(x)
-
-        for transform in self._transforms:
-            x = transform(*x)
-
-        return x
+            return self._execute_transforms(x[0], session_idx, *x[1:])
+        return self._execute_transforms(*x)
 
     def __len__(self):
         return ConcatDataset.__len__(self)
@@ -467,15 +487,14 @@ class Thinker(DN3ataset, ConcatDataset):
             self.add_transform(preprocessor.get_transform())
         return preprocessor
 
-    def clear_transforms(self):
+    def clear_transforms(self, deep_clear=False):
         self._transforms = list()
-        for s in self.sessions.values():
-            s.clear_transforms()
+        if deep_clear:
+            for s in self.sessions.values():
+                s.clear_transforms()
 
     def add_transform(self, transform):
         self._transforms.append(transform)
-        for s in self.sessions.values():
-            s.add_transform(transform)
 
 
 class Dataset(DN3ataset, ConcatDataset):
@@ -597,11 +616,7 @@ class Dataset(DN3ataset, ConcatDataset):
         if self.return_task_id:
             x.insert(1, self.task_id)
 
-        x = tuple(x)
-        for transform in self._transforms:
-            x = transform(*x)
-
-        return x
+        return self._execute_transforms(*x)
 
     def preprocess(self, preprocessor: Preprocessor, apply_transform=True, thinkers=None):
         """
@@ -649,7 +664,7 @@ class Dataset(DN3ataset, ConcatDataset):
 
     @property
     def sequence_length(self):
-        sequence_length = set(self._thinkers[t].channels for t in self._thinkers)
+        sequence_length = set(self._thinkers[t].sequence_length for t in self._thinkers)
         if len(sequence_length) > 1:
             print("Warning: Multiple sequence lengths found. A cropping transformation may be in order.")
             return unfurl(sequence_length)

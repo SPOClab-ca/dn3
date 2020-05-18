@@ -5,12 +5,13 @@ Transforms
 
 Transforms
 ----------
-.. contents:: :local:
-.. automodule:: transform.transform
+.. automodule:: dn3.transforms.basic
    :members:
+   :autosummary:
+
 
 Preprocessors
 -------------
-.. contents:: :local:
-.. automodule:: transform.preprocess
+.. automodule:: dn3.transforms.preprocessors
    :members:
+   :autosummary:

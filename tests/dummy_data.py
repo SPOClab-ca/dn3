@@ -1,5 +1,5 @@
 from dn3.data.dataset import *
-from dn3.data.utils import min_max_normalize
+from dn3.utils import min_max_normalize
 
 
 START_POINT = 0

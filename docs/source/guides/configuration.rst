@@ -122,10 +122,11 @@ tmin *(float)*
   If specified, epochs the recordings into trials at each event (can be modified by *events* config below) onset with
   respect to *tmin*. So if *tmin* is negative, happens before the event marker, positive is after, and 0 is at the
   onset.
-use_annotations *(bool)*
-  If specified, parse events from annotations. This is either because the annotations are correct and the stim channel
-  must be ignored, or to simply suppress a warning that would otherwise be printed as annotations are the fall-back
-  when a stim channel is not found.
+baseline *(list, None)*
+  This option will only be used with epoched data (tmin is specified). This is simply propagated to the `Epoch's
+  <https://mne.tools/stable/generated/mne.Epochs.html>`_ constructor as is. Where `None` can be specified using a tilde
+  character: ~, as in *baseline: [~, ~]* to use all data for basline subtraction.
+  **Unlike the default constructor, here by default, no baseline correction is performed.**
 events *(list, map/dict)*
   This can be formatted in one of three ways:
 
@@ -140,8 +141,7 @@ events *(list, map/dict)*
           left_hand: T1
           right_hand: T2
 
-     The values may be strings to match annotations. If numeric, the assumption is that a stim channel is being used,
-     but will fall-back to annotations.
+     The values may be strings to match annotations. If numeric, the assumption is that a stim channel is being used.
 
   In all cases, the codes from the stim channel or annotations will not in fact correspond to the subsequent labels
   loaded. This is because the labels don't necessarily fit a minimal spanning set starting with 0. In other words, if

@@ -3,8 +3,6 @@ Datasets
 
 .. contents:: :local:
 
-Dataset
--------
-.. contents:: :local:
-.. automodule:: data.dataset
+.. automodule:: dn3.data.dataset
    :members:
+   :autosummary:
