@@ -1,15 +1,17 @@
 import torch
+
+# Swap these two for Ipython/Jupyter
 import tqdm
+# import tqdm.notebook as tqdm
 
 from pandas import DataFrame
 from collections import OrderedDict
 from torch.utils.data import DataLoader
-# from dn3.data.dataset import DN3ataset
 
 
-class BaseTrainable(object):
+class BaseProcess(object):
 
-    def __init__(self, optimizer=None, scheduler=None, cuda=False, **kwargs):
+    def __init__(self, optimizer=None, scheduler=None, cuda=False, metrics=None, **kwargs):
         """
         Initialization of the Base Trainable object. Any learning procedure that leverages DN3atasets should subclass
         this base class.
@@ -26,6 +28,12 @@ class BaseTrainable(object):
         assert isinstance(cuda, str)
         self.device = torch.device(cuda)
         self.scheduler = scheduler
+        self.metrics = OrderedDict()
+        if metrics is not None:
+            if isinstance(metrics, (list, tuple)):
+                metrics = {m.__class__.__name__: m for m in metrics}
+            if isinstance(metrics, dict):
+                self.add_metrics(metrics)
 
         _before_members = set(self.__dict__.keys())
         self.build_network(**kwargs)
@@ -35,6 +43,9 @@ class BaseTrainable(object):
                 self.__dict__[member] = self.__dict__[member].to(self.device)
 
         self.optimizer = torch.optim.Adam(self.parameters()) if optimizer is None else optimizer
+
+    def add_metrics(self, metrics: dict):
+        self.metrics.update(**metrics)
 
     def build_network(self, **kwargs):
         """
@@ -97,7 +108,10 @@ class BaseTrainable(object):
         metrics : OrderedDict, None
                   Dictionary of metric quantities.
         """
-        return OrderedDict()
+        metrics = OrderedDict()
+        for met_name, met_fn in self.metrics.items():
+            metrics[met_name] = met_fn(inputs, outputs)
+        return metrics
 
     def backward(self, loss):
         self.optimizer.zero_grad()
@@ -140,7 +154,7 @@ class BaseTrainable(object):
         with torch.no_grad():
             for iteration in pbar:
                 inputs = next(data_iterator)
-                outputs = self.forward(inputs)
+                outputs = self.forward(*inputs)
                 update_metrics(self.calculate_metrics(inputs, outputs), iteration+1)
                 pbar.set_postfix(metrics)
 
@@ -158,11 +172,28 @@ class BaseTrainable(object):
         tqdm.tqdm.write(start_message)
 
 
-class StandardClassifier(BaseTrainable):
+def _check_make_dataloader(dataset, **loader_kwargs):
+    # Any args that make more sense as a convenience function to be set
+    loader_kwargs.setdefault('shuffle', True)
 
-    def __init__(self, classifier: torch.nn.Module, loss_fn=None, cuda=False):
-        super().__init__(cuda=cuda, classifier=classifier)
+    if isinstance(dataset, DataLoader):
+        return dataset
+    return DataLoader(dataset, **loader_kwargs)
+
+
+class StandardClassification(BaseProcess):
+
+    def __init__(self, classifier: torch.nn.Module, loss_fn=None, cuda=False, metrics=None):
+        if isinstance(metrics, dict):
+            metrics.setdefault('Accuracy', self._simple_accuracy)
+        else:
+            metrics = dict(Accuracy=self._simple_accuracy)
+        super().__init__(cuda=cuda, classifier=classifier, metrics=metrics)
         self.loss = torch.nn.CrossEntropyLoss().to(self.device) if loss_fn is None else loss_fn.to(self.device)
+
+    @staticmethod
+    def _simple_accuracy(inputs, outputs: torch.Tensor):
+        return (inputs[-1] == outputs.argmax(dim=-1)).float().mean().item()
 
     def build_network(self, classifier=None):
         assert classifier is not None
@@ -173,11 +204,13 @@ class StandardClassifier(BaseTrainable):
 
     def train_step(self, *inputs):
         self.classifier.train(True)
-        return super(StandardClassifier, self).train_step(*inputs)
+        return super(StandardClassification, self).train_step(*inputs)
 
-    def evaluate(self, dataset: DataLoader):
+    def evaluate(self, dataset, **loader_kwargs):
+        loader_kwargs.setdefault('batch_size', 1)
         self.classifier.train(False)
-        return super(StandardClassifier, self).evaluate(dataset)
+        dataset = _check_make_dataloader(dataset)
+        return super(StandardClassification, self).evaluate(dataset)
 
     def forward(self, *inputs):
         return self.classifier(inputs[0])
@@ -185,20 +218,29 @@ class StandardClassifier(BaseTrainable):
     def calculate_loss(self, inputs, outputs):
         return self.loss(outputs, inputs[-1])
 
-    def fit(self, training_dataset: DataLoader, epochs=1, validation_dataset=None, step_callback=None,
-            epoch_callback=None):
+    def fit(self, training_dataset, epochs=1, validation_dataset=None, step_callback=None,
+            epoch_callback=None, batch_size=8, **loader_kwargs):
         """
         sklearn/keras-like convenience method to simply proceed with training across multiple epochs of the provided
         dataset
+
         Parameters
         ----------
-        training_dataset : DN3ataset
-        validation_dataset : DN3ataset
+        training_dataset : DN3ataset, DataLoader
+        validation_dataset : DN3ataset, DataLoader
         epochs : int
         step_callback : callable
                         Function to run after every training step that has signature: fn(train_metrics) -> None
         epoch_callback : callable
                         Function to run after every epoch that has signature: fn(validation_metrics) -> None
+        batch_size : int
+                     The batch_size to be used for the training and validation datasets. This is ignored if they are
+                     provided as `DataLoader`.
+        loader_kwargs :
+                      Any remaining keyword arguments will be passed as such to any DataLoaders that are automatically
+                      constructed. If both training and validation datasets are provided as `DataLoaders`, this will be
+                      ignored.
+
         Returns
         -------
         train_log : Dataframe
@@ -206,6 +248,10 @@ class StandardClassifier(BaseTrainable):
         validation_log : Dataframe
                          Validation metrics after each epoch of training as a pandas dataframe
         """
+        loader_kwargs.setdefault('batch_size', batch_size)
+        training_dataset = _check_make_dataloader(training_dataset, **loader_kwargs)
+        # validation_dataset = _check_make_dataloader(validation_dataset, **loader_kwargs)
+
         def get_batch(iterator):
             return [x.to(self.device) for x in next(iterator)]
 

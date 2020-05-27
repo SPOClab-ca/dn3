@@ -133,15 +133,16 @@ events *(list, map/dict)*
   1. Unspecified - all events parsed by `find_events() <https://mne.tools/stable/generated/mne.find_events.html>`_,
      falling-back to `events_from_annotations() <https://mne.tools/stable/generated/mne.events_from_annotations.html>`_
   2. A list of event numbers that filter the set found from the above.
-  3. Labels for known events in a standard YAML form, filtering as above, e.g.:
+  3. A list of events (keys) and then labels (values) for those events, which filters as above, e.g.:
 
      .. code-block:: yaml
 
         events:
-          left_hand: T1
-          right_hand: T2
+          T1: 5
+          T2: 6
 
-     The values may be strings to match annotations. If numeric, the assumption is that a stim channel is being used.
+     The values should be integer codes, if both sides are numeric, this is used to map stim channel events to new
+     values, otherwise (if the keys are strings), the annotations are searched.
 
   In all cases, the codes from the stim channel or annotations will not in fact correspond to the subsequent labels
   loaded. This is because the labels don't necessarily fit a minimal spanning set starting with 0. In other words, if
@@ -185,7 +186,9 @@ drop_bad *(bool)*
   The maximum value taken by any recording in the dataset. Pro
 
 exclude_people *(list)
-  List of people (identified by the name of their respective directories) to be ignored.
+  List of people (identified by the name of their respective directories) to be ignored. Supports Unix-style pattern
+  matching *within quotations* (*, ?, [seq], [!seq]).
 
 exclude_sessions *(list)
-  List of sessions (files) to be ignored when performing automatic constructions.
+  List of sessions (files) to be ignored when performing automatic constructions. Supports Unix-style pattern
+  matching *within quotations* (*, ?, [seq], [!seq]).

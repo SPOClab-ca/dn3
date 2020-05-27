@@ -272,7 +272,7 @@ class EpochTorchRecording(_Recording):
         else:
             x = self._cache[index]
 
-        y = torch.tensor(self.epoch_codes_to_class_labels[ep.events[..., -1]]).squeeze().long() if \
+        y = torch.tensor(self.epoch_codes_to_class_labels[ep.events[0, -1]]).squeeze().long() if \
             self.force_label is None else self.force_label
 
         return self._execute_transforms(x, y)

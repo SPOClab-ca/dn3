@@ -29,15 +29,15 @@ class TestSimpleClassifier(unittest.TestCase):
         self.classifier = DummyClassifier(len(self.dataset.channels), self.dataset.sequence_length, 4)
 
     def test_MakeSimpleClassifierTrainable(self):
-        trainable = trainables.StandardClassifier(self.classifier)
+        trainable = trainables.StandardClassification(self.classifier)
         self.assertTrue(True)
 
     def test_MakeSimpleClassifierTrainableCUDA(self):
-        trainable = trainables.StandardClassifier(self.classifier, cuda=True)
+        trainable = trainables.StandardClassification(self.classifier, cuda=True)
         self.assertTrue(True)
 
     def test_TrainableFit(self):
-        trainable = trainables.StandardClassifier(self.classifier)
+        trainable = trainables.StandardClassification(self.classifier)
         loader = DataLoader(self.dataset, batch_size=self._BATCH_SIZE, shuffle=True, num_workers=self._NUM_WORKERS,
                             drop_last=True)
 

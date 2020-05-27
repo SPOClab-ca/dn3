@@ -2,6 +2,7 @@ import yaml
 import tqdm
 import mne.io as loader
 
+from fnmatch import fnmatch
 from pathlib import Path
 from collections import OrderedDict
 from mne import pick_types
@@ -13,8 +14,19 @@ _SUPPORTED_EXTENSIONS = {
     '.edf': loader.read_raw_edf,
     # FIXME: need to handle part fif files
     '.fif': loader.read_raw_fif,
+
     # TODO: add much more support, at least all of MNE-python
+    '.bdf': loader.read_raw_bdf,
+    '.gdf': loader.read_raw_gdf,
 }
+
+
+class _Namespace:
+    def __init__(self, d: dict):
+        for k in d:
+            if isinstance(d[k], dict):
+                d[k] = _Namespace(d[k])
+        self.__dict__.update(d)
 
 
 class ExperimentConfig:
@@ -33,7 +45,7 @@ class ExperimentConfig:
                              object for later use. Defaults to True. This will propagate for the detected datasets.
         """
         with open(config_filename, 'r') as fio:
-            self._original_config = yaml.load(fio)
+            self._original_config = yaml.full_load(fio)
         working_config = self._original_config.copy()
 
         if 'DN3' not in working_config.keys():
@@ -55,7 +67,7 @@ class ExperimentConfig:
 
         self.experiment = working_config.pop('DN3')
         if adopt_auxiliaries:
-            self.__dict__.update(working_config)
+            self.__dict__.update({k: _Namespace(v) if isinstance(v, dict) else v for k, v in working_config.items()})
 
 
 class DatasetConfig:
@@ -175,6 +187,13 @@ class DatasetConfig:
             files += self.toplevel.glob("**/*{}".format(extension))
         return files
 
+    def _exclude_file(self, f: Path):
+        for exclusion_pattern in self.exclude_sessions:
+            for version in (f.stem, f.name):
+                if fnmatch(version, exclusion_pattern):
+                    return True
+        return False
+
     def auto_mapping(self, files=None):
         """
         Generates a mapping of sessions and people of the dataset, assuming files are stored in the structure:
@@ -196,10 +215,10 @@ class DatasetConfig:
         mapping = dict()
         for sess_file in files:
             sess_file = Path(sess_file)
-            if sess_file.stem in self.exclude_sessions or sess_file.name in self.exclude_sessions:
+            if self._exclude_file(sess_file):
                 continue
             person = sess_file.parent.name
-            if person not in self.exclude_people:
+            if True not in [fnmatch(person, pattern) for pattern in self.exclude_people]:
                 if person in mapping:
                     mapping[person].append(str(sess_file))
                 else:

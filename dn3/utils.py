@@ -36,10 +36,6 @@ def min_max_normalize(x: torch.Tensor):
                 torch.min(torch.min(x, keepdim=True, dim=-1)[0], keepdim=True, dim=-1)[0])
 
 
-def map_events_to_class_labels(events, ):
-    pass
-
-
 def make_epochs_from_raw(raw: mne.io.Raw, tmin, tlen, event_ids=None, baseline=None, decim=1, filter_bp=None,
                          drop_bad=False, use_annotations=False):
     sfreq = raw.info['sfreq']
