@@ -508,7 +508,7 @@ class Dataset(DN3ataset, ConcatDataset):
         - consistent event types
     """
     def __init__(self, thinkers, dataset_id=None, task_id=None, return_session_id=False, return_person_id=False,
-                 return_dataset_id=False, return_task_id=False):
+                 return_dataset_id=False, return_task_id=False, dataset_name=None):
         """
         Collects recordings from multiple people, intended to be of the same task, at different times or
         conditions.
@@ -543,6 +543,8 @@ class Dataset(DN3ataset, ConcatDataset):
                            Whether to return the dataset_id with the data itself.
         return_task_id : bool
                            Whether to return the dataset_id with the data itself.
+        dataset_name : str, Optional
+                       A human-readable string that is not used for anything critical, just nice printing.
 
         Notes
         -----------
@@ -551,10 +553,8 @@ class Dataset(DN3ataset, ConcatDataset):
         raw_data, task_id, dataset_id, person_id, session_id, *label
         """
         super().__init__()
-        self.return_person_id = return_person_id
-        self.return_session_id = return_session_id
-        self.return_task_id = return_task_id
-        self.return_dataset_id = return_dataset_id
+        self.update_id_returns(return_session_id, return_person_id, return_dataset_id, return_task_id)
+        self.dataset_name = dataset_name
 
         if not isinstance(thinkers, dict) and isinstance(thinkers, Iterable):
             self._thinkers = OrderedDict()
@@ -574,6 +574,26 @@ class Dataset(DN3ataset, ConcatDataset):
 
         self.dataset_id = torch.tensor(dataset_id) if dataset_id is not None else None
         self.task_id = torch.tensor(task_id) if task_id is not None else None
+
+    def update_id_returns(self, session=None, person=None, task=None, dataset=None):
+        """
+        Updates which ids are to be returned by the dataset. If any argument is `None` it preserves the previous value.
+
+        Parameters
+        ----------
+        session : None, bool
+                  Whether to return session ids.
+        person : None, bool
+                 Whether to return person ids.
+        task    : None, bool
+                  Whether to return task ids.
+        dataset : None, bool
+                 Whether to return dataset ids.
+        """
+        self.return_person_id = self.return_person_id if person is None else person
+        self.return_session_id = self.return_session_id if session is None else session
+        self.return_dataset_id = self.return_dataset_id if dataset is None else dataset
+        self.return_task_id = self.return_task_id if task is None else task
 
     def _reset_dataset(self):
         for p_id in self._thinkers:

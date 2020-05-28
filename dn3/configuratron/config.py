@@ -301,4 +301,6 @@ class DatasetConfig:
                 thinkers[t] = self._construct_thinker_from_config(mapping[t])
             except DN3ConfigException:
                 tqdm.tqdm.write("None of the sessions for {} were usable. Skipping...".format(t))
+
+        dsargs.setdefault('dataset_name', self.name)
         return Dataset(thinkers, **dsargs)
