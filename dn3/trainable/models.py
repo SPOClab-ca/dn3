@@ -94,12 +94,12 @@ class TIDNet(DN3BaseModel):
     when there is abundant data.
     """
 
-    def __init__(self, targets, channels, samples, s_growth=24, t_filters=32, do=0.4, pooling=20,
+    def __init__(self, targets, samples, channels, s_growth=24, t_filters=32, do=0.4, pooling=20,
                  temp_layers=2, spat_layers=2, temp_span=0.05, bottleneck=3, summary=-1):
         self.temp_len = math.ceil(temp_span * samples)
         summary = samples // pooling if summary == -1 else summary
         self._num_features = (t_filters + s_growth * spat_layers) * summary
-        super().__init__(targets, channels, samples)
+        super().__init__(targets, samples, channels)
 
         self.temporal = nn.Sequential(
             Expand(axis=1),
@@ -108,7 +108,7 @@ class TIDNet(DN3BaseModel):
             nn.Dropout2d(do),
         )
 
-        self.spatial = DenseSpatialFilter(channels, s_growth, spat_layers, in_ch=t_filters, dropout_rate=do,
+        self.spatial = DenseSpatialFilter(self.channels, s_growth, spat_layers, in_ch=t_filters, dropout_rate=do,
                                           bottleneck=bottleneck)
         self.extract_features = nn.Sequential(
             nn.AdaptiveAvgPool1d(int(summary)),

@@ -22,10 +22,10 @@ class BaseProcess(object):
         scheduler
         cuda
         """
-        self.cuda = cuda
         if isinstance(cuda, bool):
             cuda = "cuda" if cuda else "cpu"
         assert isinstance(cuda, str)
+        self.cuda = cuda
         self.device = torch.device(cuda)
         self.scheduler = scheduler
         self.metrics = OrderedDict()
@@ -37,7 +37,7 @@ class BaseProcess(object):
 
         _before_members = set(self.__dict__.keys())
         self.build_network(**kwargs)
-        new_members = _before_members.difference(self.__dict__.keys())
+        new_members = set(self.__dict__.keys()).difference(_before_members)
         for member in new_members:
             if isinstance(self.__dict__[member], torch.nn.Module):
                 self.__dict__[member] = self.__dict__[member].to(self.device)
