@@ -35,6 +35,37 @@ class Flatten(nn.Module):
         return x.contiguous().view(x.size(0), -1)
 
 
+class ConvBlock2D(nn.Module):
+    """
+    Implements complete convolution block with order:
+      - Convolution
+      - dropout (spatial)
+      - activation
+      - batch-norm
+      - (optional) residual reconnection
+    """
+
+    def __init__(self, in_filters, out_filters, kernel, stride=(1, 1), padding=0, dilation=1, groups=1, do_rate=0.5,
+                 batch_norm=True, activation=nn.LeakyReLU, residual=False):
+        super().__init__()
+        self.kernel = kernel
+        self.activation = activation()
+        self.residual = residual
+
+        self.conv = nn.Conv2d(in_filters, out_filters, kernel, stride=stride, padding=padding, dilation=dilation,
+                           groups=groups, bias=not batch_norm)
+        self.dropout = nn.Dropout2d(p=do_rate)
+        self.batch_norm = nn.BatchNorm2d(out_filters)
+
+    def forward(self, input, **kwargs):
+        res = input
+        input = self.conv(input, **kwargs)
+        input = self.dropout(input)
+        input = self.activation(input)
+        input = self.batch_norm(input)
+        return input + res if self.residual else input
+
+
 # New layers
 class DenseFilter(nn.Module):
     def __init__(self, in_features, growth_rate, filter_len=5, do=0.5, bottleneck=2, activation=nn.LeakyReLU, dim=-2):
@@ -59,7 +90,7 @@ class DenseFilter(nn.Module):
 
 
 class DenseSpatialFilter(nn.Module):
-    def __init__(self, channels, growth, depth, in_ch=1, bottleneck=4, dropout_rate=0.0, activation=LeakyReLU,
+    def __init__(self, channels, growth, depth, in_ch=1, bottleneck=4, dropout_rate=0.0, activation=nn.LeakyReLU,
                  collapse=True):
         super().__init__()
         self.net = nn.Sequential(*[
@@ -86,14 +117,14 @@ class SpatialFilter(nn.Module):
         super().__init__()
         kernels = [(channels // depth, 1) for _ in range(depth-1)]
         kernels += [(channels - sum(x[0] for x in kernels) + depth-1, 1)]
-        self.filter = Sequential(
+        self.filter = nn.Sequential(
             ConvBlock2D(in_ch, filters, kernels[0], do_rate=dropout_rate/depth, activation=activation,
                         batch_norm=batch_norm),
             *[ConvBlock2D(filters, filters, kernel, do_rate=dropout_rate/depth, activation=activation,
                           batch_norm=batch_norm)
               for kernel in kernels[1:]]
         )
-        self.residual = Conv1d(channels * in_ch, filters, 1) if residual else None
+        self.residual = nn.Conv1d(channels * in_ch, filters, 1) if residual else None
 
     def forward(self, x):
         res = x
@@ -105,8 +136,8 @@ class SpatialFilter(nn.Module):
         return x + self.residual(res) if self.residual else x
 
 
-class TemporalFilter(Module):
-    def __init__(self, channels, filters, depth, temp_len, dropout=0., activation=LeakyReLU, residual='netwise'):
+class TemporalFilter(nn.Module):
+    def __init__(self, channels, filters, depth, temp_len, dropout=0., activation=nn.LeakyReLU, residual='netwise'):
         super().__init__()
         temp_len = temp_len + 1 - temp_len % 2
         self.residual_style = str(residual)
@@ -114,16 +145,16 @@ class TemporalFilter(Module):
 
         for i in range(depth):
             dil = depth - i
-            conv = weight_norm(Conv2d(channels if i == 0 else filters, filters, kernel_size=(1, temp_len),
+            conv = nn.utils.weight_norm(nn.Conv2d(channels if i == 0 else filters, filters, kernel_size=(1, temp_len),
                                       dilation=dil, padding=(0, dil * (temp_len - 1) // 2)))
-            net.append(Sequential(
+            net.append(nn.Sequential(
                 conv,
                 activation(),
-                Dropout2d(dropout)
+                nn.Dropout2d(dropout)
             ))
         if self.residual_style.lower() == 'netwise':
-            self.net = Sequential(*net)
-            self.residual = Conv2d(channels, filters, (1, 1))
+            self.net = nn.Sequential(*net)
+            self.residual = nn.Conv2d(channels, filters, (1, 1))
         elif residual.lower() == 'dense':
             self.net = net
 

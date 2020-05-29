@@ -46,8 +46,9 @@ class DN3ataset(TorchDataset):
 
     def clone(self):
         """
-        A shallow copy of this object to allow the repetition of recordings, thinkers, etc. that load data from
+        A copy of this object to allow the repetition of recordings, thinkers, etc. that load data from
         the same memory/files but have their own tracking of ids.
+
         Returns
         -------
         cloned : DN3ataset
@@ -453,7 +454,8 @@ class Thinker(DN3ataset, ConcatDataset):
             remainder, testing = rand_split(remainder, frac=test_frac)
         if validating is None:
             assert validation_frac is not None and 0 <= test_frac < 1
-            validating, remainder = rand_split(remainder, frac=validation_frac)
+            if validation_frac > 0:
+                validating, remainder = rand_split(remainder, frac=validation_frac)
 
         training = remainder if training is None else training
 

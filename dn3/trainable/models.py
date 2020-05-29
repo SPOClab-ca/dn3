@@ -1,30 +1,66 @@
 import math
 
+from copy import deepcopy
 from ..data.dataset import DN3ataset
 from .layers import *
 
 
 class DN3BaseModel(nn.Module):
     """
-    This is a base model used by the provided models in the library more out of convenience than anything. It is not
-    strictly necessary to have new creations inherit from this, any nn.Module should suffice.
+    This is a base model used by the provided models in the library more out of convenience than anything.
+    It is not strictly necessary to have new modules inherit from this, any nn.Module should suffice, but it provides
+    some integrated conveniences...
     """
     def __init__(self, targets, samples, channels):
         super().__init__()
         self.targets = targets
         self.samples = samples
         self.channels = channels
-        self.classifier = self._make_new_classification_layer()
+        self.make_new_classification_layer()
 
     @property
     def num_features_for_classification(self):
         raise NotImplementedError
 
-    def _make_new_classification_layer(self):
+    def clone(self):
+        """
+        This provides a standard way to copy models, weights and all.
+        """
+        return deepcopy(self)
+
+    def freeze_features(self, unfreeze=False):
+        """
+        In many cases, the features learned by a model in one domain can be applied to another case.
+
+        This method freezes (or un-freezes) all but the `classifier` layer. So that any further training does not (or
+        does if unfreeze=True) affect these weights.
+
+        Parameters
+        ----------
+        unfreeze : bool
+                   To unfreeze weights after a previous call to this.
+        """
+        for param in self.parameters():
+            param.requires_grad = unfreeze
+        for param in self.classifier.parameters():
+            param.requires_grad = True
+
+    def make_new_classification_layer(self):
+        """
+        This allows for a distinction between the classification layer(s) and the rest of the network. Using a basic
+        formulation of a network being composed of two parts feature_extractor & classifier.
+
+        This method is for implementing the classification side, so that methods like :py:meth:`freeze_features` works
+        as intended.
+
+        Anything besides a layer that just flattens anything incoming to a vector and Linearly weights this to the 
+        target should override this method, and there should be a variable called `self.classifier`
+
+        """
         classifier = nn.Linear(self.num_features_for_classification, self.targets)
         classifier.weight.data.normal_(std=0.02)
         classifier.bias.data.zero_()
-        return nn.Sequential(Flatten(), classifier)
+        self.classifier = nn.Sequential(Flatten(), classifier)
 
     def forward(self, x):
         raise NotImplementedError
@@ -51,14 +87,19 @@ class LogRegNetwork(DN3BaseModel):
 
 
 class TIDNet(DN3BaseModel):
+    """
+    The Thinker Invariant Densenet from Kostas & Rudzicz 2020 (under review).
+
+    This alone is not strictly "thinker invariant", but it for the most part performs as well as EEGNet, or better
+    when there is abundant data.
+    """
 
     def __init__(self, targets, channels, samples, s_growth=24, t_filters=32, do=0.4, pooling=20,
-                 temp_layers=2, spat_layers=2, temp_span=0.05, bottleneck=3, summary=-1,
-                 runs=None, people=None,
-                 **kwargs):
-        super().__init__(targets, channels, samples)
-
+                 temp_layers=2, spat_layers=2, temp_span=0.05, bottleneck=3, summary=-1):
         self.temp_len = math.ceil(temp_span * samples)
+        summary = samples // pooling if summary == -1 else summary
+        self._num_features = (t_filters + s_growth * spat_layers) * summary
+        super().__init__(targets, channels, samples)
 
         self.temporal = nn.Sequential(
             Expand(axis=1),
@@ -66,7 +107,6 @@ class TIDNet(DN3BaseModel):
             nn.MaxPool2d((1, pooling)),
             nn.Dropout2d(do),
         )
-        summary = samples // pooling if summary == -1 else summary
 
         self.spatial = DenseSpatialFilter(channels, s_growth, spat_layers, in_ch=t_filters, dropout_rate=do,
                                           bottleneck=bottleneck)
@@ -74,6 +114,7 @@ class TIDNet(DN3BaseModel):
             nn.AdaptiveAvgPool1d(int(summary)),
         )
 
+    @property
     def num_features_for_classification(self):
         return self._num_features
 
@@ -130,11 +171,7 @@ class EEGNet(DN3BaseModel):
 
         self._num_features = F2 * samples
 
-        self.classifier = nn.Sequential(
-            Flatten(),
-            nn.Linear(self._num_features, targets),
-        )
-
+    @property
     def num_features_for_classification(self):
         return self._num_features
 

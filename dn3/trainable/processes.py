@@ -183,12 +183,15 @@ def _check_make_dataloader(dataset, **loader_kwargs):
 
 class StandardClassification(BaseProcess):
 
-    def __init__(self, classifier: torch.nn.Module, loss_fn=None, cuda=False, metrics=None):
+    def __init__(self, classifier: torch.nn.Module, loss_fn=None, cuda=False, metrics=None, optimizer=None,
+                 learning_rate=None):
         if isinstance(metrics, dict):
             metrics.setdefault('Accuracy', self._simple_accuracy)
         else:
             metrics = dict(Accuracy=self._simple_accuracy)
-        super().__init__(cuda=cuda, classifier=classifier, metrics=metrics)
+        super().__init__(cuda=cuda, classifier=classifier, metrics=metrics, optimizer=optimizer)
+        if isinstance(learning_rate, float) and optimizer is None:
+            self.optimizer = torch.optim.Adam(self.parameters(), lr=learning_rate) if optimizer is None else optimizer
         self.loss = torch.nn.CrossEntropyLoss().to(self.device) if loss_fn is None else loss_fn.to(self.device)
 
     @staticmethod
