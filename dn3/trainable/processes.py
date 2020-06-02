@@ -11,23 +11,26 @@ from torch.utils.data import DataLoader
 
 class BaseProcess(object):
 
-    def __init__(self, optimizer=None, scheduler=None, cuda=False, metrics=None, **kwargs):
+    def __init__(self, lr=0.001, warmup=None, l2_weight_decay=0.001, cuda=False, metrics=None,
+                 **kwargs):
         """
         Initialization of the Base Trainable object. Any learning procedure that leverages DN3atasets should subclass
         this base class.
 
         Parameters
         ----------
-        optimizer
-        scheduler
-        cuda
+        cuda : bool, string
+               If boolean, sets whether to enable training on the GPU, if a string, specifies can be used to specify
+               which device to use.
+        metrics : dict, list
+                  A dictionary of named (keys) metrics (values) or some iterable set of metrics that will be identified
+                  by their class names.
         """
         if isinstance(cuda, bool):
             cuda = "cuda" if cuda else "cpu"
         assert isinstance(cuda, str)
         self.cuda = cuda
         self.device = torch.device(cuda)
-        self.scheduler = scheduler
         self.metrics = OrderedDict()
         if metrics is not None:
             if isinstance(metrics, (list, tuple)):
@@ -42,10 +45,22 @@ class BaseProcess(object):
             if isinstance(self.__dict__[member], torch.nn.Module):
                 self.__dict__[member] = self.__dict__[member].to(self.device)
 
-        self.optimizer = torch.optim.Adam(self.parameters()) if optimizer is None else optimizer
+        self.optimizer = torch.optim.Adam(self.parameters(), weight_decay=l2_weight_decay)
+        self.scheduler = None
+
+    def set_optimizer(self, optimizer):
+        del self.optimizer
+        assert isinstance(optimizer, torch.optim.optimizer.Optimizer)
+        self.optimizer = optimizer
+
+    def set_scheduler(self, scheduler):
+        self.scheduler = scheduler
 
     def add_metrics(self, metrics: dict):
         self.metrics.update(**metrics)
+
+    def _get_batch(self, iterator):
+        return [x.to(self.device) for x in next(iterator)]
 
     def build_network(self, **kwargs):
         """
@@ -119,13 +134,17 @@ class BaseProcess(object):
 
     def train_step(self, *inputs):
         outputs = self.forward(*inputs)
-        self.backward(self.calculate_loss(inputs, outputs))
+        loss = self.calculate_loss(inputs, outputs)
+        self.backward(loss)
 
         self.optimizer.step()
         if self.scheduler is not None:
             self.scheduler.step()
 
-        return self.calculate_metrics(inputs, outputs)
+        train_metrics = self.calculate_metrics(inputs, outputs)
+        train_metrics.setdefault('loss', loss.item())
+
+        return train_metrics
 
     def evaluate(self, dataset: DataLoader):
         """
@@ -153,7 +172,7 @@ class BaseProcess(object):
 
         with torch.no_grad():
             for iteration in pbar:
-                inputs = next(data_iterator)
+                inputs = self._get_batch(data_iterator)
                 outputs = self.forward(*inputs)
                 update_metrics(self.calculate_metrics(inputs, outputs), iteration+1)
                 pbar.set_postfix(metrics)
@@ -165,7 +184,7 @@ class BaseProcess(object):
         if start_message.rstrip()[-1] != '|':
             start_message = start_message.rstrip() + " |"
         for m in metrics:
-            if 'acc' in m or 'pct' in m:
+            if 'acc' in m.lower() or 'pct' in m.lower():
                 start_message += " {}: {:.2%} |".format(m, metrics[m])
             else:
                 start_message += " {}: {:.2f} |".format(m, metrics[m])
@@ -183,20 +202,26 @@ def _check_make_dataloader(dataset, **loader_kwargs):
 
 class StandardClassification(BaseProcess):
 
-    def __init__(self, classifier: torch.nn.Module, loss_fn=None, cuda=False, metrics=None, optimizer=None,
-                 learning_rate=None):
+    def __init__(self, classifier: torch.nn.Module, loss_fn=None, cuda=False, metrics=None, learning_rate=None):
         if isinstance(metrics, dict):
             metrics.setdefault('Accuracy', self._simple_accuracy)
         else:
             metrics = dict(Accuracy=self._simple_accuracy)
-        super().__init__(cuda=cuda, classifier=classifier, metrics=metrics, optimizer=optimizer)
-        if isinstance(learning_rate, float) and optimizer is None:
-            self.optimizer = torch.optim.Adam(self.parameters(), lr=learning_rate) if optimizer is None else optimizer
+        super().__init__(cuda=cuda, classifier=classifier, metrics=metrics)
+        if isinstance(learning_rate, float):
+            # fixme hardcoded weight-decay
+            self.optimizer = torch.optim.Adam(self.parameters(), lr=learning_rate, weight_decay=0.001)
         self.loss = torch.nn.CrossEntropyLoss().to(self.device) if loss_fn is None else loss_fn.to(self.device)
 
     @staticmethod
     def _simple_accuracy(inputs, outputs: torch.Tensor):
         return (inputs[-1] == outputs.argmax(dim=-1)).float().mean().item()
+
+    def _easy_scheduler(self, scheduler_string: str, epochs, total_iterations):
+        if scheduler_string.lower() == 'cosine':
+            return torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, total_iterations)
+        if scheduler_string.lower() == 'cosine_with_restarts':
+            return torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(self.optimizer, )
 
     def build_network(self, classifier=None):
         assert classifier is not None
@@ -222,7 +247,7 @@ class StandardClassification(BaseProcess):
         return self.loss(outputs, inputs[-1])
 
     def fit(self, training_dataset, epochs=1, validation_dataset=None, step_callback=None,
-            epoch_callback=None, batch_size=8, **loader_kwargs):
+            epoch_callback=None, batch_size=8, scheduler=None, **loader_kwargs):
         """
         sklearn/keras-like convenience method to simply proceed with training across multiple epochs of the provided
         dataset
@@ -255,8 +280,8 @@ class StandardClassification(BaseProcess):
         training_dataset = _check_make_dataloader(training_dataset, **loader_kwargs)
         # validation_dataset = _check_make_dataloader(validation_dataset, **loader_kwargs)
 
-        def get_batch(iterator):
-            return [x.to(self.device) for x in next(iterator)]
+        if scheduler is None:
+            scheduler = self.scheduler
 
         validation_log = list()
         train_log = list()
@@ -266,16 +291,12 @@ class StandardClassification(BaseProcess):
             pbar = tqdm.trange(1, len(training_dataset)+1, desc="Iteration")
             data_iterator = iter(training_dataset)
             for iteration in pbar:
-                inputs = get_batch(data_iterator)
-                outputs = self.forward(*inputs)
-                loss = self.calculate_loss(inputs, outputs)
-                self.backward(loss)
-                train_metrics = self.calculate_metrics(inputs, outputs)
-                train_metrics.setdefault('loss', loss.item())
+                inputs = self._get_batch(data_iterator)
+                train_metrics = self.train_step(*inputs)
+                train_metrics['lr'] = self.optimizer.param_groups[0]['lr']
                 pbar.set_postfix(train_metrics)
                 train_metrics['epoch'] = epoch
                 train_metrics['iteration'] = iteration
-                train_metrics['lr'] = self.optimizer.param_groups[0]['lr']
                 train_log.append(train_metrics)
                 if callable(step_callback):
                     step_callback(train_metrics)

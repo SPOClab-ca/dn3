@@ -140,8 +140,11 @@ class EEGNet(DN3BaseModel):
     implementations that include this constraint (albeit, those were *also not written* by the original authors).
     """
 
-    def __init__(self, targets, channels, samples, do=0.25, pooling=8, F1=8, D=2, t_len=65, F2=16):
-        super().__init__(targets, channels, samples)
+    def __init__(self, targets, samples, channels, do=0.25, pooling=8, F1=8, D=2, t_len=65, F2=16):
+        samples = samples // (pooling // 2)
+        samples = samples // pooling
+        self._num_features = F2 * samples
+        super().__init__(targets, samples, channels)
 
         self.init_conv = nn.Sequential(
             Expand(1),
@@ -156,7 +159,6 @@ class EEGNet(DN3BaseModel):
             nn.AvgPool2d((1, pooling // 2)),
             nn.Dropout(do)
         )
-        samples = samples // (pooling // 2)
 
         self.sep_conv = nn.Sequential(
             # Separate into two convs, one that doesnt operate across filters, one isolated to filters
@@ -167,9 +169,6 @@ class EEGNet(DN3BaseModel):
             nn.AvgPool2d((1, pooling)),
             nn.Dropout(do)
         )
-        samples = samples // pooling
-
-        self._num_features = F2 * samples
 
     @property
     def num_features_for_classification(self):
