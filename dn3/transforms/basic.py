@@ -1,7 +1,7 @@
 import torch
-from numpy import ndarray
+import numpy as np
 
-from .channels import map_channels_deep_1010
+from .channels import map_channels_deep_1010, DEEP_1010_CHS_LISTING
 
 
 class BaseTransform(object):
@@ -121,11 +121,15 @@ class MappingDeep1010(BaseTransform):
     Maps various channel sets into the Deep10-10 scheme.
     TODO - refer to eventual literature on this
     """
-    def __init__(self, ch_names, EOG=None, reference=None, add_scale_ind=True, return_mask=True):
+    def __init__(self, ch_names, EOG=None, reference=None, add_scale_ind=True, return_mask=True, extra_channels=None):
         super().__init__()
-        self.mapping = map_channels_deep_1010(ch_names, EOG, reference)
+        self.mapping = map_channels_deep_1010(ch_names, EOG=EOG, reference=reference, extra_channels=extra_channels)
         self.add_scale_ind = add_scale_ind
         self.return_mask = return_mask
+
+    @staticmethod
+    def mapped_channels():
+        return DEEP_1010_CHS_LISTING
 
     def __call__(self, x):
         x = (x.transpose(1, 0) @ self.mapping).transpose(1, 0)
@@ -134,7 +138,12 @@ class MappingDeep1010(BaseTransform):
         else:
             return x
 
-    def new_channels(self, old_channels: ndarray):
-        channels = old_channels @ self.mapping.gt(0)
-        channels[channels == 0] = None
+    def new_channels(self, old_channels: np.ndarray):
+        channels = list()
+        for row in range(self.mapping.shape[1]):
+            active = self.mapping[:, row].nonzero().numpy()
+            if len(active) > 0:
+                channels.append("-".join([old_channels[i.item()] for i in active]))
+            else:
+                channels.append(None)
         return channels
