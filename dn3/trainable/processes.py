@@ -292,6 +292,15 @@ class StandardClassification(BaseProcess):
         validation_log = list()
         train_log = list()
 
+        metrics = OrderedDict()
+
+        def update_metrics(new_metrics: dict, iterations):
+            if len(metrics) == 0:
+                return metrics.update(new_metrics)
+            else:
+                for m in new_metrics:
+                    metrics[m] = (metrics[m] * (iterations - 1) + new_metrics[m]) / iterations
+
         epoch_bar = tqdm.trange(1, epochs+1, desc="Epoch")
         for epoch in epoch_bar:
             pbar = tqdm.trange(1, len(training_dataset)+1, desc="Iteration")
@@ -300,7 +309,8 @@ class StandardClassification(BaseProcess):
                 inputs = self._get_batch(data_iterator)
                 train_metrics = self.train_step(*inputs)
                 train_metrics['lr'] = self.optimizer.param_groups[0]['lr']
-                pbar.set_postfix(train_metrics)
+                update_metrics(train_metrics, iteration+1)
+                pbar.set_postfix(metrics)
                 train_metrics['epoch'] = epoch
                 train_metrics['iteration'] = iteration
                 train_log.append(train_metrics)

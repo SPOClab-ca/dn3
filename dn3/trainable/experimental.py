@@ -117,21 +117,36 @@ class ClassificationWithTVectors(StandardClassification):
 
     def __init__(self, classifier: DN3BaseModel, tvector_model: TVector, loss_fn=None, cuda=False, metrics=None,
                  learning_rate=None,):
-        self.meta_classifier = nn.Sequential(
-            Flatten(),
-            nn.Linear(classifier.num_features_for_classification + tvector_model.num_features_for_classification,
-                      classifier.targets)
-        )
         super(ClassificationWithTVectors, self).__init__(classifier=classifier, tvector_model=tvector_model,
                                                          loss_fn=loss_fn, cuda=cuda, metrics=metrics,
                                                          learning_rate=learning_rate)
+
+    def build_network(self, **kwargs):
+        super(ClassificationWithTVectors, self).build_network(**kwargs)
+        self.meta_classifier = nn.Sequential(
+            Flatten(),
+            nn.Linear(self.classifier.num_features_for_classification + self.tvector_model.num_features_for_classification,
+                      self.classifier.targets)
+        )
+
+    def train_step(self, *inputs):
+        # self.tvector_model.train(True)
+        self.meta_classifier.train(True)
+        return super(StandardClassification, self).train_step(*inputs)
+
+    def evaluate(self, dataset, **loader_kwargs):
+        self.tvector_model.train(False)
+        self.meta_classifier.train(False)
+        return super(ClassificationWithTVectors, self).evaluate(dataset)
 
     def parameters(self):
         yield from super(ClassificationWithTVectors, self).parameters()
         yield from self.meta_classifier.parameters()
 
     def forward(self, *inputs):
-        _, classifier_features = self.classifier(inputs[0])
+        batch_size = inputs[0].shape[0]
+        _, classifier_features = self.classifier(inputs[0].clone())
         _, t_vectors = self.tvector_model(inputs[0])
-        return self.meta_classifier(torch.stack((classifier_features, t_vectors), dim=-1))
+        return self.meta_classifier(torch.cat((classifier_features.view(batch_size, -1),
+                                                 t_vectors.view(batch_size, -1)), dim=-1))
 
