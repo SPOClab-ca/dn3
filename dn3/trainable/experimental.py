@@ -20,7 +20,7 @@ class DonchinSpeller(BaseProcess):
         pass
 
     def parameters(self):
-        return *self.detector.parameters(), *self.aggregator.parameters()
+        return self.detector.parameters() + self.aggregator.parameters()
 
     def train_step(self, *inputs):
         self.classifier.train(True)
@@ -39,9 +39,12 @@ class DonchinSpeller(BaseProcess):
 
 class TVector(DN3BaseModel):
 
-    def __init__(self, num_target_people, samples, channels=len(DEEP_1010_CHS_LISTING), hidden_size=384, dropout=0.1,
+    def __init__(self, num_target_people=None, channels=len(DEEP_1010_CHS_LISTING), hidden_size=384, dropout=0.1,
                  ignored_inds=(SCALE_IND,), incoming_channels=None):
-        super().__init__(num_target_people, samples, channels)
+        self.hidden_size = hidden_size
+        self.num_target_people = num_target_people
+        self.dropout = dropout
+        super().__init__(num_target_people, None, channels)
         self.ignored_ids = ignored_inds
         self.mapping = None if incoming_channels is None else map_channels_deep_1010(incoming_channels)
 
@@ -61,50 +64,71 @@ class TVector(DN3BaseModel):
             _make_td_layer(hidden_size, hidden_size * 3, 1, 1),
         )
 
-        def _make_ff_layer(in_ch, out_ch):
-            return nn.Sequential(
-                nn.Linear(in_ch, out_ch),
-                nn.ReLU(),
-                nn.BatchNorm1d(out_ch),
-                nn.Dropout(dropout),
-            )
         # 3 * 2 -> td_net bottlenecks width at 3, 2 for mean and std pooling
-        self.t_vector = _make_ff_layer(hidden_size * 3 * 2, hidden_size)
-        self.classifier = nn.Sequential(
-            _make_ff_layer(hidden_size, hidden_size),
-            nn.Linear(hidden_size, num_target_people)
+        self.t_vector = self._make_ff_layer(hidden_size * 3 * 2, hidden_size)
+
+    def _make_ff_layer(self, in_ch, out_ch):
+        return nn.Sequential(
+            nn.Linear(in_ch, out_ch),
+            nn.ReLU(),
+            nn.BatchNorm1d(out_ch),
+            nn.Dropout(self.dropout),
         )
+
+    def make_new_classification_layer(self):
+        if self.num_target_people is not None:
+            self.classifier = nn.Sequential(
+                self._make_ff_layer(self.hidden_size, self.hidden_size),
+                nn.Linear(self.hidden_size, self.num_target_people)
+            )
+        else:
+            self.classifier = lambda x: x
+
+    def load(self, filename, include_classifier=False, freeze_features=True):
+        state_dict = torch.load(filename)
+        if not include_classifier:
+            for key in [k for k in state_dict.keys() if 'classifier' in k]:
+                state_dict.pop(key)
+        self.load_state_dict(state_dict, strict=False)
+        self.freeze_features(freeze_features)
+
+    def save(self, filename, ignore_classifier=True):
+        state_dict = self.state_dict()
+        if ignore_classifier:
+            for key in [k for k in state_dict.keys() if 'classifier' in k]:
+                state_dict.pop(key)
+        torch.save(state_dict, filename)
 
     @property
     def num_features_for_classification(self):
         return self.hidden_size
 
-    def forward(self, x):
+    def features_forward(self, x):
         # Ignore e.g. scale values for the dataset to avoid easy identification
         if self.mapping is not None:
             x = (x.permute([0, 2, 1]) @ self.mapping).permute([0, 2, 1])
         x[:, self.ignored_ids, :] = 0
         for_pooling = self.td_net(x)
         pooled = torch.cat([for_pooling.mean(dim=-1), for_pooling.std(dim=-1)], dim=1)
-        t_vector = self.t_vector(pooled)
-        return self.classifier(t_vector), t_vector
+        return self.t_vector(pooled)
 
 
 class ClassificationWithTVectors(StandardClassification):
 
     def __init__(self, classifier: DN3BaseModel, tvector_model: TVector, loss_fn=None, cuda=False, metrics=None,
                  learning_rate=None,):
-        super(ClassificationWithTVectors, self).__init__(classifier=classifier, tvector_model=tvector_model,
-                                                         loss_fn=loss_fn, cuda=cuda, metrics=metrics,
-                                                         learning_rate=learning_rate)
         self.meta_classifier = nn.Sequential(
             Flatten(),
             nn.Linear(classifier.num_features_for_classification + tvector_model.num_features_for_classification,
                       classifier.targets)
         )
+        super(ClassificationWithTVectors, self).__init__(classifier=classifier, tvector_model=tvector_model,
+                                                         loss_fn=loss_fn, cuda=cuda, metrics=metrics,
+                                                         learning_rate=learning_rate)
 
     def parameters(self):
-        return super(ClassificationWithTVectors, self).parameters() + self.meta_classifier.parameters()
+        yield from super(ClassificationWithTVectors, self).parameters()
+        yield from self.meta_classifier.parameters()
 
     def forward(self, *inputs):
         _, classifier_features = self.classifier(inputs[0])

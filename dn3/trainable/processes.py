@@ -65,10 +65,12 @@ class BaseProcess(object):
 
     def build_network(self, **kwargs):
         """
-        This method is used to add trainable parameters to the trainable. Rather than placing objects for training
+        This method is used to add trainable modules to the process. Rather than placing objects for training
         in the __init__ method, they should be placed here.
+
+        By default any arguments that propagate unused from __init__ are included here.
         """
-        raise NotImplementedError
+        self.__dict__.update(**kwargs)
 
     def parameters(self):
         """
@@ -226,10 +228,6 @@ class StandardClassification(BaseProcess):
             return torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, total_iterations)
         if scheduler_string.lower() == 'cosine_with_restarts':
             return torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(self.optimizer, )
-
-    def build_network(self, classifier=None):
-        assert classifier is not None
-        self.classifier = classifier
 
     def parameters(self):
         return self.classifier.parameters()

@@ -4,6 +4,7 @@ import numpy as np
 _LEFT_NUMBERS = list(reversed(range(1, 9, 2)))
 _RIGHT_NUMBERS = list(range(2, 10, 2))
 
+_EXTRA_CHANNELS = 6
 DEEP_1010_CHS_LISTING = [
     # EEG
     "NZ",
@@ -33,12 +34,12 @@ DEEP_1010_CHS_LISTING = [
     # SCALING
     "SCALE",
     # Extra
-    ["EX{}".format(n) for n in range(1, 4)]
+    *["EX{}".format(n) for n in range(1, _EXTRA_CHANNELS+1)]
 ]
 EOG_INDS = [DEEP_1010_CHS_LISTING.index(ch) for ch in ["VEOGL", "VEOGR", "HEOGL", "HEOGR"]]
 REF_INDS = [DEEP_1010_CHS_LISTING.index(ch) for ch in ["A1", "A2"]]
 SCALE_IND = -5 + len(DEEP_1010_CHS_LISTING)
-EXTRA_INDS = list(range(len(DEEP_1010_CHS_LISTING) - 4, len(DEEP_1010_CHS_LISTING)))
+EXTRA_INDS = list(range(len(DEEP_1010_CHS_LISTING) - _EXTRA_CHANNELS, len(DEEP_1010_CHS_LISTING)))
 
 
 def map_channels_deep_1010(channel_names: list, EOG=None, reference=None, extra_channels=None):

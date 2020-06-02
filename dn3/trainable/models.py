@@ -34,6 +34,13 @@ class DN3BaseModel(nn.Module):
         """
         return deepcopy(self)
 
+    def load(self, filename, strict=True):
+        state_dict = torch.load(filename)
+        self.load_state_dict(state_dict, strict=strict)
+
+    def save(self, filename):
+        torch.save(self.state_dict(), filename)
+
     def freeze_features(self, unfreeze=False):
         """
         In many cases, the features learned by a model in one domain can be applied to another case.
@@ -48,8 +55,9 @@ class DN3BaseModel(nn.Module):
         """
         for param in self.parameters():
             param.requires_grad = unfreeze
-        for param in self.classifier.parameters():
-            param.requires_grad = True
+        if isinstance(self.classifier, nn.Module):
+            for param in self.classifier.parameters():
+                param.requires_grad = True
 
     def make_new_classification_layer(self):
         """

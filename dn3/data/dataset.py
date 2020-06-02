@@ -353,7 +353,10 @@ class Thinker(DN3ataset, ConcatDataset):
         if len(sfreq) > 1:
             print("Warning: Multiple sampling frequency values found. Over/re-sampling may be necessary.")
             return unfurl(sfreq)
-        return sfreq.pop()
+        sfreq = sfreq.pop()
+        for xform in self._transforms:
+            sfreq = xform.new_sfreq(sfreq)
+        return sfreq
 
     @property
     def channels(self):
@@ -361,7 +364,10 @@ class Thinker(DN3ataset, ConcatDataset):
         if len(channels) > 1:
             print("Warning: Multiple channel sets found. A consistent mapping like Deep1010 may be prudent.")
             return unfurl(channels)
-        return channels.pop()
+        channels = channels.pop()
+        for xform in self._transforms:
+            channels = xform.new_sfreq(channels)
+        return channels
 
     @property
     def sequence_length(self):
@@ -369,7 +375,10 @@ class Thinker(DN3ataset, ConcatDataset):
         if len(sequence_length) > 1:
             print("Warning: Multiple sequence lengths found. A cropping transformation may be in order.")
             return unfurl(sequence_length)
-        return sequence_length.pop()
+        sequence_length = sequence_length.pop()
+        for xform in self._transforms:
+            sequence_length = xform.new_sfreq(sequence_length)
+        return sequence_length
 
     def __add__(self, sessions):
         assert isinstance(sessions, (_Recording, Thinker))
@@ -674,7 +683,10 @@ class Dataset(DN3ataset, ConcatDataset):
         if len(sfreq) > 1:
             print("Warning: Multiple sampling frequency values found. Over/re-sampling may be necessary.")
             return unfurl(sfreq)
-        return sfreq.pop()
+        sfreq = sfreq.pop()
+        for xform in self._transforms:
+            sfreq = xform.new_sfreq(sfreq)
+        return sfreq
 
     @property
     def channels(self):
@@ -682,7 +694,10 @@ class Dataset(DN3ataset, ConcatDataset):
         if len(channels) > 1:
             print("Warning: Multiple channel sets found. A consistent mapping like Deep1010 may be prudent.")
             return unfurl(channels)
-        return channels.pop()
+        channels = channels.pop()
+        for xform in self._transforms:
+            channels = xform.new_channels(channels)
+        return channels
 
     @property
     def sequence_length(self):
@@ -690,7 +705,10 @@ class Dataset(DN3ataset, ConcatDataset):
         if len(sequence_length) > 1:
             print("Warning: Multiple sequence lengths found. A cropping transformation may be in order.")
             return unfurl(sequence_length)
-        return sequence_length.pop()
+        sequence_length = sequence_length.pop()
+        for xform in self._transforms:
+            sequence_length = xform.new_sfreq(sequence_length)
+        return sequence_length
 
     def get_thinkers(self):
         return list(self._thinkers.keys())
