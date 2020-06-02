@@ -1,9 +1,10 @@
-import torch
+from dn3.trainable.models import DN3BaseModel
 
 # Swap these two for Ipython/Jupyter
 import tqdm
 # import tqdm.notebook as tqdm
 
+import torch
 from pandas import DataFrame
 from collections import OrderedDict
 from torch.utils.data import DataLoader
@@ -174,7 +175,9 @@ class BaseProcess(object):
             for iteration in pbar:
                 inputs = self._get_batch(data_iterator)
                 outputs = self.forward(*inputs)
-                update_metrics(self.calculate_metrics(inputs, outputs), iteration+1)
+                calc_metrics = self.calculate_metrics(inputs, outputs)
+                calc_metrics['loss'] = self.calculate_loss(inputs, outputs).item()
+                update_metrics(calc_metrics, iteration+1)
                 pbar.set_postfix(metrics)
 
         return metrics
@@ -202,15 +205,16 @@ def _check_make_dataloader(dataset, **loader_kwargs):
 
 class StandardClassification(BaseProcess):
 
-    def __init__(self, classifier: torch.nn.Module, loss_fn=None, cuda=False, metrics=None, learning_rate=None):
+    def __init__(self, classifier: torch.nn.Module, loss_fn=None, cuda=False, metrics=None, learning_rate=None,
+                 **kwargs):
         if isinstance(metrics, dict):
             metrics.setdefault('Accuracy', self._simple_accuracy)
         else:
             metrics = dict(Accuracy=self._simple_accuracy)
-        super().__init__(cuda=cuda, classifier=classifier, metrics=metrics)
+        super().__init__(cuda=cuda, classifier=classifier, metrics=metrics, **kwargs)
         if isinstance(learning_rate, float):
             # fixme hardcoded weight-decay
-            self.optimizer = torch.optim.Adam(self.parameters(), lr=learning_rate, weight_decay=0.001)
+            self.set_optimizer(torch.optim.Adam(self.parameters(), lr=learning_rate, weight_decay=0.001))
         self.loss = torch.nn.CrossEntropyLoss().to(self.device) if loss_fn is None else loss_fn.to(self.device)
 
     @staticmethod
@@ -241,7 +245,11 @@ class StandardClassification(BaseProcess):
         return super(StandardClassification, self).evaluate(dataset)
 
     def forward(self, *inputs):
-        return self.classifier(inputs[0])
+        if isinstance(self.classifier, DN3BaseModel):
+            prediction, _ = self.classifier(inputs[0])
+        else:
+            prediction = self.classifier(inputs[0])
+        return prediction
 
     def calculate_loss(self, inputs, outputs):
         return self.loss(outputs, inputs[-1])

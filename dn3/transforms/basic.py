@@ -1,7 +1,7 @@
 import torch
 from numpy import ndarray
 
-from .channels import map_channels_1010
+from .channels import map_channels_deep_1010
 
 
 class BaseTransform(object):
@@ -123,13 +123,16 @@ class MappingDeep1010(BaseTransform):
     """
     def __init__(self, ch_names, EOG=None, reference=None, add_scale_ind=True, return_mask=True):
         super().__init__()
-        self.mapping = map_channels_1010(ch_names, EOG, reference)
+        self.mapping = map_channels_deep_1010(ch_names, EOG, reference)
         self.add_scale_ind = add_scale_ind
         self.return_mask = return_mask
 
     def __call__(self, x):
         x = (x.transpose(1, 0) @ self.mapping).transpose(1, 0)
-        return (x, self.mapping.sum(dim=0))
+        if self.return_mask:
+            return (x, self.mapping.sum(dim=0))
+        else:
+            return x
 
     def new_channels(self, old_channels: ndarray):
         channels = old_channels @ self.mapping.gt(0)

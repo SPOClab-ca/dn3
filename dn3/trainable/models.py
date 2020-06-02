@@ -7,9 +7,15 @@ from .layers import *
 
 class DN3BaseModel(nn.Module):
     """
-    This is a base model used by the provided models in the library more out of convenience than anything.
+    This is a base model used by the provided models in the library that is meant to make those included in this
+    library as powerful and multi-purpose as is reasonable.
+
     It is not strictly necessary to have new modules inherit from this, any nn.Module should suffice, but it provides
     some integrated conveniences...
+
+    The premise of this model is that deep learning models can be understood as *learned pipelines*. These
+    :any:`DN3BaseModel` objects, are re-interpreted as a two-stage pipeline, the two stages being *feature extraction*
+    and *classification*.
     """
     def __init__(self, targets, samples, channels):
         super().__init__()
@@ -63,7 +69,14 @@ class DN3BaseModel(nn.Module):
         self.classifier = nn.Sequential(Flatten(), classifier)
 
     def forward(self, x):
+        features = self.features_forward(x)
+        return self.classifier_forward(features), features
+
+    def features_forward(self, x):
         raise NotImplementedError
+
+    def classifier_forward(self, features):
+        return self.classifier(features)
 
     @classmethod
     def from_dataset(cls, dataset: DN3ataset, targets):
@@ -78,12 +91,12 @@ class LogRegNetwork(DN3BaseModel):
     def __init__(self, targets, samples, channels):
         super().__init__(targets, samples, channels)
 
+    def features_forward(self, x):
+        return x
+
     @property
     def num_features_for_classification(self):
         return self.samples * self.channels
-
-    def forward(self, x):
-        return self.classifier(x)
 
 
 class TIDNet(DN3BaseModel):
@@ -118,12 +131,10 @@ class TIDNet(DN3BaseModel):
     def num_features_for_classification(self):
         return self._num_features
 
-    def forward(self, x, **kwargs):
+    def features_forward(self, x, **kwargs):
         x = self.temporal(x)
         x = self.spatial(x)
-        x = self.extract_features(x)
-
-        return self.classifier(x)
+        return self.extract_features(x)
 
 
 class EEGNet(DN3BaseModel):
@@ -174,9 +185,7 @@ class EEGNet(DN3BaseModel):
     def num_features_for_classification(self):
         return self._num_features
 
-    def forward(self, x):
+    def features_forward(self, x):
         x = self.init_conv(x)
         x = self.depth_conv(x)
-        x = self.sep_conv(x)
-
-        return self.classifier(x)
+        return self.sep_conv(x)

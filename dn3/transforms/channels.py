@@ -4,7 +4,7 @@ import numpy as np
 _LEFT_NUMBERS = list(reversed(range(1, 9, 2)))
 _RIGHT_NUMBERS = list(range(2, 10, 2))
 
-STANDARD_10_10_CHS_PLUS = [
+DEEP_1010_CHS_LISTING = [
     # EEG
     "NZ",
     "FP1", "FPZ", "FP2",
@@ -35,13 +35,13 @@ STANDARD_10_10_CHS_PLUS = [
     # Extra
     ["EX{}".format(n) for n in range(1, 4)]
 ]
-EOG_INDS = [STANDARD_10_10_CHS_PLUS.index(ch) for ch in ["VEOGL", "VEOGR", "HEOGL", "HEOGR"]]
-REF_INDS = [STANDARD_10_10_CHS_PLUS.index(ch) for ch in ["A1", "A2"]]
-SCALE_IND = -5 + len(STANDARD_10_10_CHS_PLUS)
-EXTRA_INDS = list(range(len(STANDARD_10_10_CHS_PLUS) - 4, len(STANDARD_10_10_CHS_PLUS)))
+EOG_INDS = [DEEP_1010_CHS_LISTING.index(ch) for ch in ["VEOGL", "VEOGR", "HEOGL", "HEOGR"]]
+REF_INDS = [DEEP_1010_CHS_LISTING.index(ch) for ch in ["A1", "A2"]]
+SCALE_IND = -5 + len(DEEP_1010_CHS_LISTING)
+EXTRA_INDS = list(range(len(DEEP_1010_CHS_LISTING) - 4, len(DEEP_1010_CHS_LISTING)))
 
 
-def map_channels_1010(channel_names: list, EOG=None, reference=None, extra_channels=None):
+def map_channels_deep_1010(channel_names: list, EOG=None, reference=None, extra_channels=None):
     """
     Maps provided channel names to the standard format, will automatically map EOG and extra channels if they have been
     named according to standard convention. Otherwise provide as keyword arguments.
@@ -53,7 +53,7 @@ def map_channels_1010(channel_names: list, EOG=None, reference=None, extra_chann
     :param extra_channels: List of up to 3 extra channels to include
     :return: torch.Tensor -> Mapping matrix from dataset channel space to standard space.
     """
-    map = np.zeros((len(channel_names), len(STANDARD_10_10_CHS_PLUS)))
+    map = np.zeros((len(channel_names), len(DEEP_1010_CHS_LISTING)))
 
     if isinstance(EOG, str):
         EOG = [EOG] * 4
@@ -92,11 +92,13 @@ def map_channels_1010(channel_names: list, EOG=None, reference=None, extra_chann
     for i, ch in enumerate(channel_names):
         if ch not in EOG and ch not in reference and ch not in extra_channels:
             try:
-                map[i, STANDARD_10_10_CHS_PLUS.index(str(ch).upper())] = 1.0
+                map[i, DEEP_1010_CHS_LISTING.index(str(ch).upper())] = 1.0
             except ValueError:
                 print("Warning: channel {} not found in standard layout. Skipping...".format(ch))
                 continue
 
     # Normalize for if multiple values mapped to single location
     summed = map.sum(axis=0)[np.newaxis, :]
-    return torch.from_numpy(np.divide(map, summed, out=np.zeros_like(map), where=summed != 0)).float()
+    mapping = torch.from_numpy(np.divide(map, summed, out=np.zeros_like(map), where=summed != 0)).float()
+    mapping.requires_grad_(False)
+    return mapping
