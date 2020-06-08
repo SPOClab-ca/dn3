@@ -7,6 +7,12 @@ DN3:
 
 another_extra: 10
 
+basic_include: !include test_Includes.yml
+
+glob_include: !include "*/*.yml"
+
+non_yaml: !include test_Includes.json
+
 mmidb_minimally_specified_raw:
   toplevel: ./test_dataset/physionet.org/files/eegmmidb/
   tlen: 3

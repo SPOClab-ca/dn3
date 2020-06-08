@@ -1,4 +1,5 @@
 import yaml
+from yamlinclude import YamlIncludeConstructor
 import tqdm
 import mne.io as loader
 
@@ -20,12 +21,16 @@ _SUPPORTED_EXTENSIONS = {
     '.gdf': loader.read_raw_gdf,
 }
 
+YamlIncludeConstructor.add_to_loader_class(loader_class=yaml.FullLoader)
 
-class _Namespace:
+
+class _DumbNamespace:
     def __init__(self, d: dict):
         for k in d:
             if isinstance(d[k], dict):
-                d[k] = _Namespace(d[k])
+                d[k] = _DumbNamespace(d[k])
+            if isinstance(d[k], list):
+                d[k] = [_DumbNamespace(d[k][i]) if isinstance(d[k][i], dict) else d[k][i] for i in range(len(d[k]))]
         self.__dict__.update(d)
 
 
@@ -45,7 +50,7 @@ class ExperimentConfig:
                              object for later use. Defaults to True. This will propagate for the detected datasets.
         """
         with open(config_filename, 'r') as fio:
-            self._original_config = yaml.full_load(fio)
+            self._original_config = yaml.load(fio, Loader=yaml.FullLoader)
         working_config = self._original_config.copy()
 
         if 'DN3' not in working_config.keys():
@@ -67,7 +72,14 @@ class ExperimentConfig:
 
         self.experiment = working_config.pop('DN3')
         if adopt_auxiliaries:
-            self.__dict__.update({k: _Namespace(v) if isinstance(v, dict) else v for k, v in working_config.items()})
+            def namespaceify(v):
+                if isinstance(v, dict):
+                    return _DumbNamespace(v)
+                elif isinstance(v, list):
+                    return [namespaceify(v[i]) for i in range(len(v))]
+                else:
+                    return v
+            self.__dict__.update({k: namespaceify(v) for k, v in working_config.items()})
 
 
 class DatasetConfig:
