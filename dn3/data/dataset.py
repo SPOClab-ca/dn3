@@ -254,7 +254,7 @@ class EpochTorchRecording(_Recording):
             # mne parses this for us
             event_mapping = epochs.event_id
         reverse_mapping = {v: k for k, v in event_mapping.items()}
-        self.epoch_codes_to_class_labels = dict(enumerate(sorted(reverse_mapping.keys())))
+        self.epoch_codes_to_class_labels = {v: i for i, v in enumerate(sorted(reverse_mapping.keys()))}
 
     def __getitem__(self, index):
         ep = self.epochs[index]

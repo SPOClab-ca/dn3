@@ -43,7 +43,7 @@ class BaseProcess(object):
         self.build_network(**kwargs)
         new_members = set(self.__dict__.keys()).difference(_before_members)
         for member in new_members:
-            if isinstance(self.__dict__[member], torch.nn.Module):
+            if isinstance(self.__dict__[member], (torch.nn.Module, torch.Tensor)):
                 self.__dict__[member] = self.__dict__[member].to(self.device)
 
         self.optimizer = torch.optim.Adam(self.parameters(), weight_decay=l2_weight_decay)
@@ -51,7 +51,6 @@ class BaseProcess(object):
 
     def set_optimizer(self, optimizer):
         del self.optimizer
-        assert isinstance(optimizer, torch.optim.optimizer.Optimizer)
         self.optimizer = optimizer
 
     def set_scheduler(self, scheduler):
@@ -199,6 +198,7 @@ class BaseProcess(object):
 def _check_make_dataloader(dataset, **loader_kwargs):
     # Any args that make more sense as a convenience function to be set
     loader_kwargs.setdefault('shuffle', True)
+    loader_kwargs.setdefault('drop_last', True)
 
     if isinstance(dataset, DataLoader):
         return dataset

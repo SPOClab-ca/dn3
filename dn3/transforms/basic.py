@@ -121,7 +121,8 @@ class MappingDeep1010(BaseTransform):
     Maps various channel sets into the Deep10-10 scheme.
     TODO - refer to eventual literature on this
     """
-    def __init__(self, ch_names, EOG=None, reference=None, add_scale_ind=True, return_mask=True, extra_channels=None):
+    def __init__(self, ch_names, EOG=None, reference=None, add_scale_ind=True, return_mask=True, extra_channels=None,
+                 normalize=True):
         super().__init__()
         self.mapping = map_channels_deep_1010(ch_names, EOG=EOG, reference=reference, extra_channels=extra_channels)
         self.add_scale_ind = add_scale_ind

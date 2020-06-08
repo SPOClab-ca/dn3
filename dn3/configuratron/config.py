@@ -63,7 +63,7 @@ class ExperimentConfig:
                 raise DN3ConfigException("Dataset: {} not found in {}".format(
                     ds, [k for k in working_config.keys() if k != 'DN3']))
             self.datasets[ds] = DatasetConfig(ds, working_config.pop(ds))
-        print("Found {} datasets.".format(len(self.datasets), "s" if len(self.datasets) > 0 else ""))
+        print("Configuratron found {} datasets.".format(len(self.datasets), "s" if len(self.datasets) > 0 else ""))
 
         self.experiment = working_config.pop('DN3')
         if adopt_auxiliaries:

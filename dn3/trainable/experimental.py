@@ -1,5 +1,6 @@
 from .layers import *
 from dn3.data.dataset import DN3ataset
+from dn3.transforms.basic import BaseTransform
 from dn3.transforms.channels import map_channels_deep_1010, DEEP_1010_CHS_LISTING, SCALE_IND
 
 from .processes import BaseProcess, StandardClassification
@@ -90,7 +91,7 @@ class TVector(DN3BaseModel):
             for key in [k for k in state_dict.keys() if 'classifier' in k]:
                 state_dict.pop(key)
         self.load_state_dict(state_dict, strict=False)
-        self.freeze_features(freeze_features)
+        self.freeze_features(unfreeze=not freeze_features)
 
     def save(self, filename, ignore_classifier=True):
         state_dict = self.state_dict()
@@ -104,6 +105,8 @@ class TVector(DN3BaseModel):
         return self.hidden_size
 
     def features_forward(self, x):
+        if len(x.shape) == 2:
+            x = x.unsqueeze(0)
         # Ignore e.g. scale values for the dataset to avoid easy identification
         if self.mapping is not None:
             x = (x.permute([0, 2, 1]) @ self.mapping).permute([0, 2, 1])
@@ -123,14 +126,21 @@ class ClassificationWithTVectors(StandardClassification):
 
     def build_network(self, **kwargs):
         super(ClassificationWithTVectors, self).build_network(**kwargs)
+        self.tvector_model.train(False)
+        incoming = self.classifier.num_features_for_classification
+        self.attn_tvect = torch.ones((self.tvector_model.num_features_for_classification,
+                                      self.classifier.num_features_for_classification),
+                                     requires_grad=True, device=self.device)
         self.meta_classifier = nn.Sequential(
             Flatten(),
-            nn.Linear(self.classifier.num_features_for_classification + self.tvector_model.num_features_for_classification,
-                      self.classifier.targets)
+            nn.BatchNorm1d(incoming),
+            # nn.Linear(incoming, incoming // 4),
+            # nn.Dropout(0.6),
+            # nn.Sigmoid(),
+            nn.Linear(incoming, self.classifier.targets)
         )
 
     def train_step(self, *inputs):
-        # self.tvector_model.train(True)
         self.meta_classifier.train(True)
         return super(StandardClassification, self).train_step(*inputs)
 
@@ -142,11 +152,35 @@ class ClassificationWithTVectors(StandardClassification):
     def parameters(self):
         yield from super(ClassificationWithTVectors, self).parameters()
         yield from self.meta_classifier.parameters()
+        yield self.attn_tvect
 
     def forward(self, *inputs):
         batch_size = inputs[0].shape[0]
         _, classifier_features = self.classifier(inputs[0].clone())
         _, t_vectors = self.tvector_model(inputs[0])
-        return self.meta_classifier(torch.cat((classifier_features.view(batch_size, -1),
-                                                 t_vectors.view(batch_size, -1)), dim=-1))
+        added = classifier_features.view(batch_size, -1) + t_vectors.view(batch_size, -1) @ self.attn_tvect
+        return self.meta_classifier(added)
+
+
+class TVectorConcatenation(BaseTransform):
+
+    def __init__(self, t_vector_model):
+        if isinstance(t_vector_model, TVector):
+            self.tvect = t_vector_model
+        elif isinstance(t_vector_model, str):
+            print("Loading T-Vectors model from path: {}".format(t_vector_model))
+            self.tvect = TVector()
+            self.tvect.load(t_vector_model)
+        # ensure not in training mode
+        self.tvect.train(False)
+        super(TVectorConcatenation, self).__init__()
+
+    def __call__(self, *x):
+        x = x[0]
+        channels, sequence_length = x.shape
+        tvector = self.tvect.features_forward(x).view(-1, 1)
+        return torch.cat((tvector.expand(-1, sequence_length), x), dim=0)
+
+    def new_channels(self, old_channels):
+        return old_channels + ['T-vectors-{}'.format(i+1) for i in range(self.tvect.num_features_for_classification)]
 
