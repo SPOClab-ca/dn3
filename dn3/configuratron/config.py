@@ -7,7 +7,7 @@ from fnmatch import fnmatch
 from pathlib import Path
 from collections import OrderedDict
 from mne import pick_types
-from dn3.data.dataset import Dataset, RawTorchRecording, EpochTorchRecording, Thinker
+from dn3.data.dataset import Dataset, RawTorchRecording, EpochTorchRecording, Thinker, DatasetInfo
 from dn3.utils import make_epochs_from_raw, DN3ConfigException
 
 
@@ -132,8 +132,8 @@ class DatasetConfig:
             self.events = OrderedDict(self.events)
 
         # other options
-        self.data_max = get_pop('max')
-        self.data_min = get_pop('min')
+        self.data_max = get_pop('data_max')
+        self.data_min = get_pop('data_min')
         self.name = get_pop('name', name)
         self.stride = get_pop('stride', 1)
         self.extensions = get_pop('file_extensions', list(_SUPPORTED_EXTENSIONS.keys()))
@@ -158,6 +158,9 @@ class DatasetConfig:
         if ext_handlers is not None:
             for ext in ext_handlers:
                 self.add_extension_handler(ext, ext_handlers[ext])
+
+        self._excluded_people = list()
+        self._excluded_sessions = list()
 
     _PICK_TYPES = ['meg', 'eeg', 'stim', 'eog', 'ecg', 'emg', 'ref_meg', 'misc', 'resp', 'chpi', 'exci', 'ias', 'syst',
                    'seeg', 'dipole', 'gof', 'bio', 'ecog', 'fnirs', 'csd', ]
@@ -228,6 +231,7 @@ class DatasetConfig:
         for sess_file in files:
             sess_file = Path(sess_file)
             if self._exclude_file(sess_file):
+                self._excluded_sessions.append(sess_file)
                 continue
             person = sess_file.parent.name
             if True not in [fnmatch(person, pattern) for pattern in self.exclude_people]:
@@ -235,6 +239,8 @@ class DatasetConfig:
                     mapping[person].append(str(sess_file))
                 else:
                     mapping[person] = [str(sess_file)]
+            else:
+                self._excluded_people.append(person)
         return mapping
 
     def _load_raw(self, path: Path):
@@ -293,7 +299,8 @@ class DatasetConfig:
                 If not specified, will use `auto_mapping()` to generate.
         dsargs :
                 Any additional arguments to feed for the creation of the dataset. i.e. keyword arguments to `Dataset`'s
-                constructor (which id's to return).
+                constructor (which id's to return). If `dataset_info` is provided here, it will override what was
+                inferrable from the configuration file.
 
         Returns
         -------
@@ -314,5 +321,6 @@ class DatasetConfig:
             except DN3ConfigException:
                 tqdm.tqdm.write("None of the sessions for {} were usable. Skipping...".format(t))
 
-        dsargs.setdefault('dataset_name', self.name)
+        info = DatasetInfo(self.name, self.data_max, self.data_min, self._excluded_people, self._excluded_sessions)
+        dsargs.setdefault('dataset_info', info)
         return Dataset(thinkers, **dsargs)

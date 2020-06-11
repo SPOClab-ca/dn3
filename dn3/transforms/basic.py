@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 
-from .channels import map_channels_deep_1010, DEEP_1010_CHS_LISTING
+from .channels import map_dataset_channels_deep_1010, DEEP_1010_CH_TYPES
 
 
 class BaseTransform(object):
@@ -36,13 +36,14 @@ class BaseTransform(object):
         Parameters
         ----------
         old_channels : ndarray
-                       An array with the channel names as they are up until this transformation
+                       An array whose last two dimensions are channel names and channel types.
 
         Returns
         -------
         new_channels : ndarray
-                      An array with the channel names as they are after this transformation. Supports conversion of 1D
-                      channel set into more dimensions, e.g. a list of channels into a rectangular grid.
+                      An array with the channel names and types after this transformation. Supports the addition of
+                      dimensions e.g. a list of channels into a rectangular grid, but the *final two dimensions* must
+                      remain the channel names, and types respectively.
         """
         return old_channels
 
@@ -121,16 +122,25 @@ class MappingDeep1010(BaseTransform):
     Maps various channel sets into the Deep10-10 scheme.
     TODO - refer to eventual literature on this
     """
-    def __init__(self, ch_names, EOG=None, reference=None, add_scale_ind=True, return_mask=True, extra_channels=None,
-                 normalize=True):
+    def __init__(self, dataset, add_scale_ind=True, return_mask=False):
+        """
+        Creates a Deep10-10 mapping for the provided dataset.
+
+        Parameters
+        ----------
+        dataset : Dataset
+
+        add_scale_ind : bool
+                        If `True` (default), the scale ind is filled with the relative scale of the trial with respect
+                        to the data min and max of the dataset.
+        return_mask : bool
+                      If `True` (`False` by default), an additional tensor is returned after this transform that
+                      says which channels of the mapping are in fact in use.
+        """
         super().__init__()
-        self.mapping = map_channels_deep_1010(ch_names, EOG=EOG, reference=reference, extra_channels=extra_channels)
+        self.mapping = map_dataset_channels_deep_1010(dataset)
         self.add_scale_ind = add_scale_ind
         self.return_mask = return_mask
-
-    @staticmethod
-    def mapped_channels():
-        return DEEP_1010_CHS_LISTING
 
     def __call__(self, x):
         x = (x.transpose(1, 0) @ self.mapping).transpose(1, 0)
@@ -144,7 +154,7 @@ class MappingDeep1010(BaseTransform):
         for row in range(self.mapping.shape[1]):
             active = self.mapping[:, row].nonzero().numpy()
             if len(active) > 0:
-                channels.append("-".join([old_channels[i.item()] for i in active]))
+                channels.append("-".join([old_channels[i.item(), 0] for i in active]))
             else:
                 channels.append(None)
-        return channels
+        return np.array(list(zip(channels, DEEP_1010_CH_TYPES)))

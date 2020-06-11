@@ -110,14 +110,35 @@ There isn't anything special to this, aside from providing a convenient location
 values that one might need for a set of experiments. These fields will now be populated in the `experiment` variable
 above. So now, `experiment.architecture` is a `dict` with fields populated from the yaml file.
 
+MOAR! I'm a power user
+----------------------
+One of the really cool (my Mom agrees) aspects of the configuratron is the inclusion of !include directives. Anywhere
+in the document, you can include other files that can be readily reinterpreted as YAML, as supported by the
+`pyyaml-include <https://github.com/tanbro/pyyaml-include>`_ project. This means one could specify all the available
+datasets in one file called *datasets.yml* and include the complete listing for each configuration, say
+*config_shallow.yml* and *config_deep.yml* by saying `!include datasets.yml`. *Hopefully that explains why the datasets
+that are in fact in-use for each configuration are listed in their own special place*. Or you could include the json
+architecture configurations (potentially backed by your favourite cloud-based hyperparameter tracking module).
+
+More directives might be added to the configuratron in the future, and we warmly welcome any suggestions/implementations
+others may come up with.
+
 Complete listing of dataset configuration fields
 ------------------------------------------------
+
+### Required entries
 
 toplevel *(required, directory)*
   Specifies the toplevel directory of the dataset.
 tlen *(required, float)*
   The length of time to use for each retrieved datapoint. If *epoched* trials (see :any:`EpochTorchRecording`) are
   required, *tmin* must also be specified.
+samples *(required-ish, float)*
+  As an alternative to tlen, for when you want to align datasets with pretty similar sampling frequencies, you can
+  specify samples. If used, tlen is ignored (and not needed) and is inferred from the number of samples desired.
+
+### Optional entries
+
 tmin *(float)*
   If specified, epochs the recordings into trials at each event (can be modified by *events* config below) onset with
   respect to *tmin*. So if *tmin* is negative, happens before the event marker, positive is after, and 0 is at the
@@ -182,8 +203,21 @@ drop_bad *(bool)*
 
 .. What am I doing about the filtering options?
 
-.. data_max *(float)*
-  The maximum value taken by any recording in the dataset. Pro
+data_max *(float, bool)*
+  The maximum value taken by any recording in the dataset. Providing a float will assume this value, setting this to
+  `True` instead automatically determines this value when loading data. These are required for a fully-specified use
+  of the Deep1010 mapping.
+
+  *CAUTION: this can be extremely slow. If specified, the value will be printed and should probably be explicitly added
+  to the configuration subsequently.*
+
+data_min *(float, bool)*
+  The minimum value taken by any recording in the dataset. Providing a float will assume this value, setting this to
+  `True` instead automatically determines this value when loading data. These are required for a fully-specified use
+  of the Deep1010 mapping.
+
+  *CAUTION: this can be extremely slow. If specified, the value will be printed and should probably be explicitly added
+  to the configuration subsequently.*
 
 exclude_people *(list)
   List of people (identified by the name of their respective directories) to be ignored. Supports Unix-style pattern

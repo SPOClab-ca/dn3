@@ -1,4 +1,5 @@
 from dn3.data.dataset import *
+from dn3.transforms.channels import DEEP_1010_CHS_LISTING
 from dn3.utils import min_max_normalize
 
 
@@ -24,7 +25,7 @@ def create_basic_data():
     events = np.zeros_like(sinx)
     for ev_sample, label in EVENTS:
         events[ev_sample] = label
-    return np.array([sinx, cosx, events])
+    return np.array([*([sinx, cosx] * 5), events])
 
 
 def create_dummy_raw():
@@ -35,8 +36,8 @@ def create_dummy_raw():
     raw : mne.io.Raw
     """
     data = create_basic_data()
-    ch_names = [str(s) for s in range(2)] + ['STI 014']
-    ch_types = ['eeg', 'eeg', 'stim']
+    ch_names = DEEP_1010_CHS_LISTING[:8] + [' V-EOG L', 'V-EOG-R'] + ['STI 014']
+    ch_types = (['eeg'] * 8) + (['eog'] * 2) + ['stim']
 
     info = mne.create_info(ch_names=ch_names, sfreq=SFREQ, ch_types=ch_types)
     raw = mne.io.RawArray(data, info)

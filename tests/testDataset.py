@@ -38,7 +38,7 @@ class TestSessionsDummyData(unittest.TestCase):
         for i, (sample, label) in enumerate(EVENTS):
             x, y = recording[i]
             self.assertTrue(check_epoch_against_data(x, i))
-            self.assertEqual(torch.tensor(label), y)
+            self.assertEqual(torch.tensor(label) - 1, y)
 
 
 class TestThinkersDummyData(unittest.TestCase):
@@ -59,7 +59,7 @@ class TestThinkersDummyData(unittest.TestCase):
             else:
                 self.assertEqual(sess_id, 1)
             self.assertTrue(check_epoch_against_data(x, i % len(self.epoch_session)))
-            self.assertEqual(torch.tensor(EVENTS[i % len(self.epoch_session)][1]), y)
+            self.assertEqual(torch.tensor(EVENTS[i % len(self.epoch_session)][1]) - 1, y)
 
     def test_ThinkerSplitFractions(self):
         training, validating, testing = self.thinker.split(test_frac=0.5, validation_frac=0.5)
@@ -103,7 +103,7 @@ class TestDatasetDummyData(unittest.TestCase):
                 self.assertEqual(ds_id, self._DATASET_ID)
                 self.assertEqual(task_id, self._TASK_ID)
                 self.assertTrue(check_epoch_against_data(x, i % len(EVENTS)))
-                self.assertEqual(torch.tensor(EVENTS[i % len(EVENTS)][1]), y)
+                self.assertEqual(torch.tensor(EVENTS[i % len(EVENTS)][1])-1, y)
 
     def test_DatasetLOSO(self):
         people = self.dataset.get_thinkers()

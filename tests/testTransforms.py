@@ -3,6 +3,7 @@ import unittest
 import mne
 import torch
 
+from dn3.transforms.channels import DEEP_1010_CHS_LISTING
 from dn3.transforms.basic import ZScore, MappingDeep1010
 from tests.dummy_data import create_dummy_dataset, retrieve_underlying_dummy_data, EVENTS
 
@@ -52,9 +53,9 @@ class TestTransforms(unittest.TestCase):
                 self.assertTrue(torch.allclose(x, simple_zscoring(retrieve_underlying_dummy_data(ev_id))))
 
     def test_MapDeep1010Channels(self):
-        transform = MappingDeep1010(self.dataset.channels, extra_channels=self.dataset.channels)
+        transform = MappingDeep1010(self.dataset.channels)
         self.dataset.add_transform(transform)
-        self.assertEqual(len(MappingDeep1010.mapped_channels()), len(self.dataset.channels))
+        self.assertEqual((len(DEEP_1010_CHS_LISTING), 2), self.dataset.channels.shape)
 
 
 if __name__ == '__main__':

@@ -1,7 +1,7 @@
 from .layers import *
 from dn3.data.dataset import DN3ataset
 from dn3.transforms.basic import BaseTransform
-from dn3.transforms.channels import map_channels_deep_1010, DEEP_1010_CHS_LISTING, SCALE_IND
+from dn3.transforms.channels import map_named_channels_deep_1010, DEEP_1010_CHS_LISTING, SCALE_IND
 
 from .processes import BaseProcess, StandardClassification
 from .models import DN3BaseModel
@@ -47,7 +47,7 @@ class TVector(DN3BaseModel):
         self.dropout = dropout
         super().__init__(num_target_people, None, channels)
         self.ignored_ids = ignored_inds
-        self.mapping = None if incoming_channels is None else map_channels_deep_1010(incoming_channels)
+        self.mapping = None if incoming_channels is None else map_named_channels_deep_1010(incoming_channels)
 
         def _make_td_layer(in_ch, out_ch, kernel, dilation):
             return nn.Sequential(

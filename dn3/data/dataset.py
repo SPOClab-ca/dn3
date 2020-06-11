@@ -41,6 +41,10 @@ class DN3ataset(TorchDataset):
         raise NotImplementedError
 
     @property
+    def channel_types(self):
+        raise NotImplementedError
+
+    @property
     def sequence_length(self):
         raise NotImplementedError
 
@@ -115,7 +119,7 @@ class _Recording(DN3ataset, ABC):
     def __init__(self, info, session_id, person_id, tlen):
         super().__init__()
         self.info = info
-        self._recording_channels = [ch['ch_name'] for ch in info['chs']]
+        self._recording_channels = [(ch['ch_name'], int(ch['kind'])) for ch in info['chs']]
         self._recording_sfreq = info['sfreq']
         self._recording_len = int(self._recording_sfreq * tlen)
         assert self._recording_sfreq is not None
@@ -146,6 +150,14 @@ class _Recording(DN3ataset, ABC):
         for xform in self._transforms:
             sequence_length = xform.new_sequence_length(sequence_length)
         return sequence_length
+
+
+def _same_channel_sets(channel_sets: list):
+    """Validate that all the channel sets are consistent, return false if not"""
+    for chs in channel_sets[1:]:
+        if not np.all(channel_sets[0] == chs):
+            return False
+    return True
 
 
 class RawTorchRecording(_Recording):
@@ -360,10 +372,9 @@ class Thinker(DN3ataset, ConcatDataset):
 
     @property
     def channels(self):
-        channels = set(tuple(self.sessions[s].channels) for s in self.sessions)
-        if len(channels) > 1:
-            print("Warning: Multiple channel sets found. A consistent mapping like Deep1010 may be prudent.")
-            return unfurl(channels)
+        channels = [self.sessions[s].channels for s in self.sessions]
+        if not _same_channel_sets(channels):
+            raise ValueError("Multiple channel sets found. A consistent mapping like Deep1010 is necessary to proceed.")
         channels = channels.pop()
         for xform in self._transforms:
             channels = xform.new_sfreq(channels)
@@ -508,6 +519,17 @@ class Thinker(DN3ataset, ConcatDataset):
         self._transforms.append(transform)
 
 
+class DatasetInfo(object):
+    """
+    This objects contains non-critical meta-data that might need to be tracked for :py:`Dataset` objects. Generally
+    not necessary to be constructed manually, these are created by the configuratron to automatically create transforms
+    and/or other processes downstream.
+    """
+    def __init__(self, dataset_name, data_max=None, data_min=None, excluded_people=None, excluded_sessions=None):
+        self.__dict__.update(dict(dataset_name=dataset_name, data_max=data_max, data_min=data_min,
+                                  excluded_people=excluded_people, excluded_sessions=excluded_sessions))
+
+
 class Dataset(DN3ataset, ConcatDataset):
     """
     Collects thinkers, each of which may collect multiple recording sessions of the same tasks, into a dataset with
@@ -519,7 +541,7 @@ class Dataset(DN3ataset, ConcatDataset):
         - consistent event types
     """
     def __init__(self, thinkers, dataset_id=None, task_id=None, return_session_id=False, return_person_id=False,
-                 return_dataset_id=False, return_task_id=False, dataset_name=None):
+                 return_dataset_id=False, return_task_id=False, dataset_info=None):
         """
         Collects recordings from multiple people, intended to be of the same task, at different times or
         conditions.
@@ -554,8 +576,8 @@ class Dataset(DN3ataset, ConcatDataset):
                            Whether to return the dataset_id with the data itself.
         return_task_id : bool
                            Whether to return the dataset_id with the data itself.
-        dataset_name : str, Optional
-                       A human-readable string that is not used for anything critical, just nice printing.
+        dataset_info : DatasetInfo, Optional
+                       Additional, non-critical data that helps specify additional features of the dataset.
 
         Notes
         -----------
@@ -565,7 +587,7 @@ class Dataset(DN3ataset, ConcatDataset):
         """
         super().__init__()
         self.update_id_returns(return_session_id, return_person_id, return_dataset_id, return_task_id)
-        self.dataset_name = dataset_name
+        self.info = dataset_info
 
         if not isinstance(thinkers, dict) and isinstance(thinkers, Iterable):
             self._thinkers = OrderedDict()
@@ -617,6 +639,10 @@ class Dataset(DN3ataset, ConcatDataset):
     def _apply(self, lam_fn):
         for th_id, thinker in self._thinkers.items():
             lam_fn(th_id, thinker)
+
+    def __str__(self):
+        ds_name = "Dataset-{}".format(self.dataset_id) if self.info is None else self.info.dataset_name
+        return ">> {} << | {} people | {} trials".format(ds_name, len(self.get_thinkers()), len(self))
 
     def __add__(self, thinker, return_session_id=None):
         assert isinstance(thinker, Thinker)
@@ -690,10 +716,9 @@ class Dataset(DN3ataset, ConcatDataset):
 
     @property
     def channels(self):
-        channels = set(self._thinkers[t].channels for t in self._thinkers)
-        if len(channels) > 1:
-            print("Warning: Multiple channel sets found. A consistent mapping like Deep1010 may be prudent.")
-            return unfurl(channels)
+        channels = [self._thinkers[t].channels for t in self._thinkers]
+        if not _same_channel_sets(channels):
+            raise ValueError("Multiple channel sets found. A consistent mapping like Deep1010 is necessary to proceed.")
         channels = channels.pop()
         for xform in self._transforms:
             channels = xform.new_channels(channels)
@@ -724,7 +749,8 @@ class Dataset(DN3ataset, ConcatDataset):
             task_id = self.task_id.item() if self.dataset_id is not None else None
 
             like_me = Dataset({p: self._thinkers[p] for p in people}, dataset_id, task_id, self.return_person_id,
-                              self.return_session_id, self.return_dataset_id, self.return_task_id)
+                              self.return_session_id, self.return_dataset_id, self.return_task_id,
+                              dataset_info=self.info)
         for x in self._transforms:
             like_me.add_transform(x)
         return like_me
