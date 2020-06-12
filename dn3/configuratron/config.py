@@ -7,8 +7,10 @@ from fnmatch import fnmatch
 from pathlib import Path
 from collections import OrderedDict
 from mne import pick_types
+
 from dn3.data.dataset import Dataset, RawTorchRecording, EpochTorchRecording, Thinker, DatasetInfo
 from dn3.utils import make_epochs_from_raw, DN3ConfigException
+from dn3.transforms.basic import MappingDeep1010
 
 
 _SUPPORTED_EXTENSIONS = {
@@ -61,14 +63,25 @@ class ExperimentConfig:
 
         self.experiment = working_config.pop('Configuratron')
 
-        self._make_deep1010 = True if self.experiment is None else self.experiment.get('deep1010', True)
-        self._global_samples = True if self.experiment is None else self.experiment.get('samples', None)
-        self.datasets = dict()
-
         ds_entries = working_config.pop('datasets')
-        for i, ds in enumerate(ds_entries):
-            name, ds = (ds, ds_entries[ds]) if isinstance(ds, str) else (str(i), ds)
-            self.datasets[name] = DatasetConfig(name, ds, deep1010=self._make_deep1010, samples=self._global_samples)
+        ds_entries = dict(zip(range(len(ds_entries)), ds_entries)) if isinstance(ds_entries, list) else ds_entries
+        usable_datasets = list(ds_entries.keys())
+
+        if self.experiment is None:
+            self._make_deep1010 = True
+            self._global_samples = None
+        else:
+            self._make_deep1010 = self.experiment.get('deep1010', True)
+            self._global_samples = self.experiment.get('samples', None)
+            usable_datasets = self.experiment.get('use_only', usable_datasets)
+
+        self.datasets = dict()
+        for i, name in enumerate(usable_datasets):
+            if name in ds_entries.keys():
+                self.datasets[name] = DatasetConfig(name, ds_entries[name], deep1010=self._make_deep1010,
+                                                    samples=self._global_samples)
+            else:
+                raise DN3ConfigException("Could not find {} in datasets".format(name))
 
         print("Configuratron found {} datasets.".format(len(self.datasets), "s" if len(self.datasets) > 0 else ""))
 
@@ -141,6 +154,7 @@ class DatasetConfig:
         self.extensions = get_pop('file_extensions', list(_SUPPORTED_EXTENSIONS.keys()))
         self.exclude_people = get_pop('exclude_people', list())
         self.exclude_sessions = get_pop('exclude_sessions', list())
+        self.deep1010 = deep1010
 
         self._samples = get_pop('samples', samples)
 
@@ -295,8 +309,8 @@ class DatasetConfig:
         for sess_name in thinker:
             try:
                 sessions[Path(sess_name).name] = self._construct_session_from_config(sess_name)
-            except DN3ConfigException:
-                tqdm.tqdm.write("Skipping {}. None of the listed events found.".format(sess_name))
+            except DN3ConfigException as e:
+                tqdm.tqdm.write("Skipping {}. Exception: {}.".format(sess_name, e.args))
         if len(sessions) == 0:
             raise DN3ConfigException
         return Thinker(sessions)
@@ -342,4 +356,7 @@ class DatasetConfig:
 
         info = DatasetInfo(self.name, self.data_max, self.data_min, self._excluded_people, self._excluded_sessions)
         dsargs.setdefault('dataset_info', info)
-        return Dataset(thinkers, **dsargs)
+        dataset = Dataset(thinkers, **dsargs)
+        if self.deep1010:
+            dataset.add_transform(MappingDeep1010(self))
+        return dataset

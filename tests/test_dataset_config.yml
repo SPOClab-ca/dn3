@@ -1,4 +1,5 @@
 Configuratron:
+  deep1010: False
 
 another_extra: 10
 
@@ -36,7 +37,7 @@ datasets:
       - S090
       - S092
       - S100
-    decimate: 2
+    decimate: 1
     baseline: [-0.25, ~]
     bandpass: [0.1, 20]
     drop_bad: True
