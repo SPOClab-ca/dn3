@@ -135,7 +135,8 @@ deep1010 *(bool)*
   This will normalize and map all configuratron generated datasets using the :any:`MappingDeep1010` transform. This
   is on by default.
 
-
+samples *(int)*
+  Providing samples
 
 Complete listing of dataset configuration fields
 ================================================
@@ -145,10 +146,16 @@ Required entries
 
 toplevel *(required, directory)*
   Specifies the toplevel directory of the dataset.
-tlen *(required, float)*
+
+Special entries
+---------------
+These entries are superseded by the `Configuratron` entry *samples*, which defines a global number of samples parameter.
+If this is not the case, **one of the following two is required**.
+
+**tlen** *(required, float)*
   The length of time to use for each retrieved datapoint. If *epoched* trials (see :any:`EpochTorchRecording`) are
   required, *tmin* must also be specified.
-samples *(required-ish, float)*
+**samples** *(required-ish, float)*
   As an alternative to tlen, for when you want to align datasets with pretty similar sampling frequencies, you can
   specify samples. If used, tlen is ignored (and not needed) and is inferred from the number of samples desired.
 

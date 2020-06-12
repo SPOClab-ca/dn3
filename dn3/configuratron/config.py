@@ -62,12 +62,13 @@ class ExperimentConfig:
         self.experiment = working_config.pop('Configuratron')
 
         self._make_deep1010 = True if self.experiment is None else self.experiment.get('deep1010', True)
+        self._global_samples = True if self.experiment is None else self.experiment.get('samples', None)
         self.datasets = dict()
 
         ds_entries = working_config.pop('datasets')
         for i, ds in enumerate(ds_entries):
             name, ds = (ds, ds_entries[ds]) if isinstance(ds, str) else (str(i), ds)
-            self.datasets[name] = DatasetConfig(name, ds, deep1010=self._make_deep1010)
+            self.datasets[name] = DatasetConfig(name, ds, deep1010=self._make_deep1010, samples=self._global_samples)
 
         print("Configuratron found {} datasets.".format(len(self.datasets), "s" if len(self.datasets) > 0 else ""))
 
@@ -86,7 +87,8 @@ class DatasetConfig:
     """
     Parses dataset entries in DN3 config
     """
-    def __init__(self, name: str, config: dict, adopt_auxiliaries=True, ext_handlers=None, deep1010=True):
+    def __init__(self, name: str, config: dict, adopt_auxiliaries=True, ext_handlers=None, deep1010=True,
+                 samples=None):
         """
         Parses dataset entries in DN3 config
         Parameters
@@ -140,10 +142,13 @@ class DatasetConfig:
         self.exclude_people = get_pop('exclude_people', list())
         self.exclude_sessions = get_pop('exclude_sessions', list())
 
+        self._samples = get_pop('samples', samples)
+
         # Required args
         try:
             self.toplevel = Path(config.pop('toplevel'))
-            self.tlen = config.pop('tlen')
+            if self._samples is None:
+                self.tlen = config.pop('tlen')
         except KeyError as e:
             raise DN3ConfigException("Could not find required value: {}".format(e.args[0]))
         if not self.toplevel.exists():
@@ -259,11 +264,25 @@ class DatasetConfig:
             session = Path(session)
 
         raw = self._load_raw(session)
+
+        # Don't allow violation of Nyquist criterion
+        if raw.info.get('lowpass', None) is not None and raw.info['sfreq'] / self.decimate < 2 * raw.info['lowpass']:
+            raise DN3ConfigException("Could not create raw for {}. With lowpass filter {}, sampling frequency {} and "
+                                     "decimate {}. This is going to have bad aliasing!".format(session,
+                                                                                               raw.info['lowpass'],
+                                                                                               raw.info['sfreq'],
+                                                                                               self.decimate))
+
+        if self.tlen is None:
+            tlen = self._samples * self.decimate / raw.info['sfreq']
+        else:
+            tlen = self.tlen
+
         if self._create_raw_recordings:
-            return RawTorchRecording(raw, self.tlen, stride=self.stride, decimate=self.decimate)
+            return RawTorchRecording(raw, tlen, stride=self.stride, decimate=self.decimate)
 
         use_annotations = self.events is not None and True in [isinstance(x, str) for x in self.events.keys()]
-        epochs = make_epochs_from_raw(raw, self.tmin, self.tlen, event_ids=self.events, baseline=self.baseline,
+        epochs = make_epochs_from_raw(raw, self.tmin, tlen, event_ids=self.events, baseline=self.baseline,
                                       decim=self.decimate, filter_bp=self.bandpass, drop_bad=self.drop_bad,
                                       use_annotations=use_annotations)
         picks = pick_types(raw.info, **{t: t in self.picks for t in self._PICK_TYPES}) if self._picks_as_types() \
