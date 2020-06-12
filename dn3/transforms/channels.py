@@ -98,11 +98,19 @@ def _heuristic_eog_resolution(eog_channel_name):
     return _valid_character_heuristics(eog_channel_name, "VHEOGLR")
 
 
-def _heuristic_ref_resolution(ref_channel_name):
-    return _valid_character_heuristics(ref_channel_name, 'A12REF')
+def _heuristic_ref_resolution(ref_channel_name: str):
+    if ref_channel_name.find('A1') == -1:
+        return 'A1'
+    elif ref_channel_name.find('A2') == -1:
+        return 'A2'
+    return "REF"
 
 
-def _heuristic_eeg_resolution(eeg_ch_name):
+def _heuristic_eeg_resolution(eeg_ch_name: str):
+    eeg_ch_name = eeg_ch_name.upper()
+    # remove some common garbage
+    eeg_ch_name = eeg_ch_name.replace('EEG', '')
+    eeg_ch_name = eeg_ch_name.replace('REF', '')
     informative_characters = set([c for name in DEEP_1010_CHS_LISTING[:_NUM_EEG_CHS] for c in name])
     return _valid_character_heuristics(eeg_ch_name, informative_characters)
 
@@ -116,7 +124,7 @@ def _likely_eeg_channel(name):
 
 def _heuristic_resolution(old_type_dict: OrderedDict):
     resolver = {'eeg': _heuristic_eeg_resolution, 'eog': _heuristic_eog_resolution, 'ref': _heuristic_ref_resolution,
-                None: lambda x: x}
+                'extra': lambda x: x, None: lambda x: x}
 
     new_type_dict = OrderedDict()
 
@@ -125,6 +133,10 @@ def _heuristic_resolution(old_type_dict: OrderedDict):
         if new_name is None:
             new_type_dict[old_name] = None
         else:
+            while new_name in new_type_dict.keys():
+                print('Deep1010 Heuristics resulted in duplicate entries for {}, incrementing name, but will be lost '
+                      'in mapping'.format(new_name))
+                new_name = new_name + '-COPY'
             new_type_dict[new_name] = old_type_dict[old_name]
 
     assert len(new_type_dict) == len(old_type_dict)

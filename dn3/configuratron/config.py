@@ -161,8 +161,7 @@ class DatasetConfig:
         # Required args
         try:
             self.toplevel = Path(config.pop('toplevel'))
-            if self._samples is None:
-                self.tlen = config.pop('tlen')
+            self.tlen = config.pop('tlen') if self._samples is None else None
         except KeyError as e:
             raise DN3ConfigException("Could not find required value: {}".format(e.args[0]))
         if not self.toplevel.exists():
@@ -293,16 +292,24 @@ class DatasetConfig:
             tlen = self.tlen
 
         if self._create_raw_recordings:
-            return RawTorchRecording(raw, tlen, stride=self.stride, decimate=self.decimate)
+            recording = RawTorchRecording(raw, tlen, stride=self.stride, decimate=self.decimate)
+        else:
+            use_annotations = self.events is not None and True in [isinstance(x, str) for x in self.events.keys()]
+            epochs = make_epochs_from_raw(raw, self.tmin, tlen, event_ids=self.events, baseline=self.baseline,
+                                          decim=self.decimate, filter_bp=self.bandpass, drop_bad=self.drop_bad,
+                                          use_annotations=use_annotations)
+            picks = pick_types(raw.info, **{t: t in self.picks for t in self._PICK_TYPES}) if self._picks_as_types() \
+                else self.picks
 
-        use_annotations = self.events is not None and True in [isinstance(x, str) for x in self.events.keys()]
-        epochs = make_epochs_from_raw(raw, self.tmin, tlen, event_ids=self.events, baseline=self.baseline,
-                                      decim=self.decimate, filter_bp=self.bandpass, drop_bad=self.drop_bad,
-                                      use_annotations=use_annotations)
-        picks = pick_types(raw.info, **{t: t in self.picks for t in self._PICK_TYPES}) if self._picks_as_types() \
-            else self.picks
+            recording = EpochTorchRecording(epochs, picks=picks, event_mapping=self.events)
 
-        return EpochTorchRecording(epochs, picks=picks, event_mapping=self.events)
+        if self.deep1010:
+            # FIXME dataset not fully formed, but we can hack together something for now
+            _dum = _DumbNamespace(dict(channels=recording.channels, info=dict(data_max=self.data_max,
+                                                                              data_min=self.data_min)))
+            recording.add_transform(MappingDeep1010(_dum))
+
+        return recording
 
     def _construct_thinker_from_config(self, thinker: list):
         sessions = dict()
@@ -357,6 +364,6 @@ class DatasetConfig:
         info = DatasetInfo(self.name, self.data_max, self.data_min, self._excluded_people, self._excluded_sessions)
         dsargs.setdefault('dataset_info', info)
         dataset = Dataset(thinkers, **dsargs)
-        if self.deep1010:
-            dataset.add_transform(MappingDeep1010(self))
+        # if self.deep1010:
+        #     dataset.add_transform(MappingDeep1010(dataset))
         return dataset
