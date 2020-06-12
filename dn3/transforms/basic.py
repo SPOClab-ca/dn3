@@ -1,7 +1,8 @@
 import torch
 import numpy as np
 
-from .channels import map_dataset_channels_deep_1010, DEEP_1010_CH_TYPES
+from .channels import map_dataset_channels_deep_1010, DEEP_1010_CH_TYPES, SCALE_IND
+from dn3.utils import min_max_normalize
 
 
 class BaseTransform(object):
@@ -119,7 +120,9 @@ class TemporalPadding(BaseTransform):
 
 class MappingDeep1010(BaseTransform):
     """
-    Maps various channel sets into the Deep10-10 scheme.
+    Maps various channel sets into the Deep10-10 scheme, and normalizes data between [-1, 1] with an additional scaling
+    parameter to describe the relative scale of a trial with respect to the entire dataset.
+
     TODO - refer to eventual literature on this
     """
     def __init__(self, dataset, add_scale_ind=True, return_mask=False):
@@ -138,12 +141,23 @@ class MappingDeep1010(BaseTransform):
                       says which channels of the mapping are in fact in use.
         """
         super().__init__()
-        self.mapping = map_dataset_channels_deep_1010(dataset)
-        self.add_scale_ind = add_scale_ind
+        self.mapping = map_dataset_channels_deep_1010(dataset.channels)
+        self.max_scale = None
+        if add_scale_ind:
+            if dataset.info is None:
+                print("Can't add scale index with dataset that is missing info.")
+            else:
+                self.max_scale = dataset.info.data_max - dataset.info.data_min
         self.return_mask = return_mask
 
     def __call__(self, x):
         x = (x.transpose(1, 0) @ self.mapping).transpose(1, 0)
+
+        if self.max_scale is not None:
+            scale = 2 * (torch.clamp_max((x.max() - x.min()) / self.max_scale, 1.0) - 0.5)
+        x = min_max_normalize(x)
+        x[SCALE_IND, :] = 0 if self.max_scale is None else scale
+
         if self.return_mask:
             return (x, self.mapping.sum(dim=0))
         else:

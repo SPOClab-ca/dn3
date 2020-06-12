@@ -14,6 +14,13 @@ fetched recording sequence, be it a trial or cropped sequence of raw data. For t
 objects, implementing :py:func:`__call__` to modify a :any:`Tensor` unless they modify the number/representation of
 channels, sampling frequency or sequence length of the data.
 
+Multiple Worker Processes
+-------------------------
+After attaching enough transforms, you may find that, even with the deep learning done on the GPU that loading training
+data is the bottleneck
+
+Preprocessors
+-------------
 :any:`Preprocessor` (s) are simply a method to create a transform after first encountering all of the :any:`_Recording`
 (s) of a :any:`DN3ataset`. Simply put, if the transform is known *a priori*, the :any:`BaseTransform` interface is
 sufficient. Otherwise, a :any:`Preprocessor` can be used to both modify :any:`_Recording` (s) in place *before*

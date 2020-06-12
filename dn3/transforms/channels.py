@@ -1,5 +1,6 @@
 import torch
 import numpy as np
+from collections import OrderedDict
 
 # Not crazy about this approach..
 from mne.utils._bunch import NamedInt
@@ -73,28 +74,37 @@ def _deep_1010(map, names, eog, ear_ref, extra):
     return mapping
 
 
-def _valid_character_heuristics(names, informative_characters):
-    new_names = list()
-    for name in names:
-        possible = ''.join(c for c in name.upper() if c in informative_characters).replace(' ', '')
-        if possible == "":
-            print("Could not use channel {}. Could not resolve its true label, rename first.".format(name))
-        else:
-            new_names.append(possible)
-    return new_names
+def _valid_character_heuristics(name, informative_characters):
+    possible = ''.join(c for c in name.upper() if c in informative_characters).replace(' ', '')
+    if possible == "":
+        print("Could not use channel {}. Could not resolve its true label, rename first.".format(name))
+        return None
+    return possible
 
 
-def _heuristic_eog_resolution(eog_ch_names: list):
-    return _valid_character_heuristics(eog_ch_names, "VHEOGLR")[:len(EOG_INDS)]
+def _check_num_and_get_types(type_dict: OrderedDict):
+    type_lists = list()
+    for ch_type, max_num in zip(('eog', 'ref'), (len(EOG_INDS), len(REF_INDS))):
+        channels = [ch_name for ch_name, ch_type in type_dict.items() if ch_type == ch_type]
+
+        for name in channels[max_num:]:
+            print("Losing assumed {} channel {} because there are too many.".format(ch_type, name))
+            type_dict[name] = None
+        type_lists.append(channels[:max_num])
+    return type_lists[0], type_lists[1]
 
 
-def _heuristic_ref_resolution(ear_ref_names: list):
-    return _valid_character_heuristics(ear_ref_names, 'A12REF')[:len(REF_INDS)]
+def _heuristic_eog_resolution(eog_channel_name):
+    return _valid_character_heuristics(eog_channel_name, "VHEOGLR")
 
 
-def _heuristic_eeg_resolution(eeg_ch_names: list):
+def _heuristic_ref_resolution(ref_channel_name):
+    return _valid_character_heuristics(ref_channel_name, 'A12REF')
+
+
+def _heuristic_eeg_resolution(eeg_ch_name):
     informative_characters = set([c for name in DEEP_1010_CHS_LISTING[:_NUM_EEG_CHS] for c in name])
-    return _valid_character_heuristics(eeg_ch_names, informative_characters)[:_NUM_EEG_CHS]
+    return _valid_character_heuristics(eeg_ch_name, informative_characters)
 
 
 def _likely_eeg_channel(name):
@@ -102,6 +112,23 @@ def _likely_eeg_channel(name):
         if ch in name.upper():
             return True
     return False
+
+
+def _heuristic_resolution(old_type_dict: OrderedDict):
+    resolver = {'eeg': _heuristic_eeg_resolution, 'eog': _heuristic_eog_resolution, 'ref': _heuristic_ref_resolution,
+                None: lambda x: x}
+
+    new_type_dict = OrderedDict()
+
+    for old_name, ch_type in old_type_dict.items():
+        new_name = resolver[ch_type](old_name)
+        if new_name is None:
+            new_type_dict[old_name] = None
+        else:
+            new_type_dict[new_name] = old_type_dict[old_name]
+
+    assert len(new_type_dict) == len(old_type_dict)
+    return new_type_dict
 
 
 def map_named_channels_deep_1010(channel_names: list, EOG=None, ear_ref=None, extra_channels=None):
@@ -184,6 +211,11 @@ def map_dataset_channels_deep_1010(channels: np.ndarray, exclude_stim=True):
                    This option allows the stim channel to be added as an *extra* channel. The default (True) will not do
                    this, and it is very rare if ever where this would be needed.
 
+    Warnings
+    --------
+    If for some reason the stim channel is labelled with a label from the `DEEP_1010_CHS_LISTING` it will be included
+    in that location and result in labels bleeding into the observed data.
+
     Returns
     -------
     mapping : torch.Tensor
@@ -192,9 +224,7 @@ def map_dataset_channels_deep_1010(channels: np.ndarray, exclude_stim=True):
     if len(channels.shape) != 2 or channels.shape[1] != 2:
         raise ValueError("Deep1010 Mapping: channels must be a 2 dimensional array with dim0 = num_channels, dim1 = 2."
                          " Got {}".format(channels.shape))
-    eeg = list()
-    eog = list()
-    reference = list()
+    channel_types = OrderedDict()
 
     # Use this for some semblance of order in the "extras"
     extra = [None for _ in range(_EXTRA_CHANNELS)]
@@ -204,37 +234,32 @@ def map_dataset_channels_deep_1010(channels: np.ndarray, exclude_stim=True):
         # Annoyingly numpy converts them to strings...
         ch_type = int(ch_type)
         if ch_type == FIFF.FIFFV_EEG_CH and _likely_eeg_channel(name):
-            eeg.append(name)
+            channel_types[name] = 'eeg'
         elif ch_type == FIFF.FIFFV_EOG_CH:
-            eog.append(name)
+            channel_types[name] = 'eog'
         elif ch_type == FIFF.FIFFV_STIM_CH:
             if exclude_stim:
+                channel_types[name] = None
                 continue
             # if stim, always set as last extra
+            channel_types[name] = 'extra'
             extra[-1] = name
         elif 'REF' in name.upper() or 'A1' in name.upper() or 'A2' in name.upper():
-            reference.append(name)
+            channel_types[name] = 'ref'
         else:
             if extra_idx == _EXTRA_CHANNELS - 1 and not exclude_stim:
                 print("Stim channel overwritten by {} in Deep1010 mapping.".format(name))
             elif extra_idx == _EXTRA_CHANNELS:
                 print("No more room in extra channels for {}".format(name))
                 continue
+            channel_types[name] = 'extra'
             extra[extra_idx] = name
             extra_idx += 1
 
-    # FIXME -  This probably belongs in the heuristics
-    for ch_type, chs, num in zip(['reference', 'EOG', 'EEG'], [reference, eog, eeg],
-                                 [len(REF_INDS), len(EOG_INDS), _NUM_EEG_CHS]):
-        if len(chs) > num:
-            for name in chs[num:]:
-                print("Losing assumed {} channel {} because there are too many.".format(ch_type, name))
+    revised_channel_types = _heuristic_resolution(channel_types)
+    eog, ref = _check_num_and_get_types(revised_channel_types)
 
-    reference = _heuristic_ref_resolution(reference)
-    eog = _heuristic_eog_resolution(eog)
-    eeg = _heuristic_eeg_resolution(eeg)
-
-    return map_named_channels_deep_1010(eeg + eog + reference + extra, eog, reference, extra)
+    return map_named_channels_deep_1010(list(revised_channel_types.keys()), eog, ref, extra)
 
 
 def print_channel_mapping(original_names, mapping):

@@ -6,7 +6,6 @@ import numpy as np
 
 from dn3.transforms.preprocessors import Preprocessor
 from dn3.transforms.basic import BaseTransform
-from dn3.utils import min_max_normalize as _min_max_normalize
 from dn3.utils import rand_split, unfurl
 
 from abc import ABC
@@ -179,8 +178,7 @@ class RawTorchRecording(_Recording):
           The number of samples to skip between each starting offset of loaded samples.
     """
 
-    def __init__(self, raw: mne.io.Raw, tlen, session_id=0, person_id=0, stride=1, picks=None,
-                 normalizer=_min_max_normalize, **kwargs):
+    def __init__(self, raw: mne.io.Raw, tlen, session_id=0, person_id=0, stride=1, picks=None, **kwargs):
 
         """
         Interface for bridging mne Raw instances as PyTorch compatible "Dataset".
@@ -204,7 +202,6 @@ class RawTorchRecording(_Recording):
         self.stride = stride
         self.max = kwargs.get('max', None)
         self.min = kwargs.get('min', 0)
-        self.normalizer = normalizer
         self.picks = picks
         self.__dict__.update(kwargs)
 
@@ -218,14 +215,11 @@ class RawTorchRecording(_Recording):
         scale = 1 if self.max is None else (x.max() - x.min()) / (self.max - self.min)
         if scale > 1 or np.isnan(scale):
             print('Warning: scale exeeding 1')
-        x = self.normalizer(torch.from_numpy(x)).float()
-        if torch.any(x > 1):
-            print("Somehow larger than 1.. {}, index {}".format(self.raw.filenames[0], index))
-            raise ValueError()
+        x = torch.from_numpy(x).float()
 
         if torch.any(torch.isnan(x)):
             print("Nan found: raw {}, index {}".format(self.raw.filenames[0], index))
-            print("Replacing with appropriate random values for now...")
+            print("Replacing with random values with same shape for now...")
             x = torch.rand_like(x)
 
         return self._execute_transforms(x)
@@ -241,7 +235,7 @@ class RawTorchRecording(_Recording):
 
 class EpochTorchRecording(_Recording):
     def __init__(self, epochs: mne.Epochs, session_id=0, person_id=0, force_label=None, cached=False,
-                 normalizer=_min_max_normalize, picks=None, event_mapping=None):
+                 picks=None, event_mapping=None):
         """
         Wraps :any:`Epoch` objects so that they conform to the :any:`Recording` structure.
         Parameters
@@ -251,7 +245,6 @@ class EpochTorchRecording(_Recording):
         person_id
         force_label
         cached
-        normalizer
         picks
         event_mapping : dict, Optional
                         Mapping of human-readable names to numeric codes used by `epochs`.
@@ -260,7 +253,6 @@ class EpochTorchRecording(_Recording):
         self.epochs = epochs
         self._cache = [None for _ in range(len(epochs.events))] if cached else None
         self.force_label = force_label if force_label is None else torch.tensor(force_label)
-        self.normalizer = normalizer
         self.picks = picks
         if event_mapping is None:
             # mne parses this for us
@@ -279,7 +271,7 @@ class EpochTorchRecording(_Recording):
                 print(self.epochs.info['description'])
                 print("Using trial {} in place for now...".format(index-1))
                 return self.__getitem__(index - 1)
-            x = self.normalizer(torch.from_numpy(x.squeeze(0))).float()
+            x = torch.from_numpy(x.squeeze(0)).float()
             if self._cache is not None:
                 self._cache[index] = x
         else:

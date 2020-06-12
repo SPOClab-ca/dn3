@@ -1,3 +1,6 @@
+import re
+from sys import gettrace
+
 from dn3.trainable.models import DN3BaseModel
 
 # Swap these two for Ipython/Jupyter
@@ -12,7 +15,7 @@ from torch.utils.data import DataLoader
 
 class BaseProcess(object):
 
-    def __init__(self, lr=0.001, warmup=None, l2_weight_decay=0.001, cuda=False, metrics=None,
+    def __init__(self, lr=0.001, warmup=None, l2_weight_decay=0.001, cuda=None, metrics=None,
                  **kwargs):
         """
         Initialization of the Base Trainable object. Any learning procedure that leverages DN3atasets should subclass
@@ -20,13 +23,17 @@ class BaseProcess(object):
 
         Parameters
         ----------
-        cuda : bool, string
+        cuda : bool, string, None
                If boolean, sets whether to enable training on the GPU, if a string, specifies can be used to specify
-               which device to use.
+               which device to use. If None (default) figures it out automatically.
         metrics : dict, list
                   A dictionary of named (keys) metrics (values) or some iterable set of metrics that will be identified
                   by their class names.
         """
+        if cuda is None:
+            cuda = torch.cuda.is_available()
+            if cuda:
+                tqdm.tqdm.write("GPU(s) detected: training and model execution will be performed on GPU.")
         if isinstance(cuda, bool):
             cuda = "cuda" if cuda else "cpu"
         assert isinstance(cuda, str)
@@ -58,6 +65,21 @@ class BaseProcess(object):
 
     def add_metrics(self, metrics: dict):
         self.metrics.update(**metrics)
+
+    def _optimize_dataloader_kwargs(self, **loader_kwargs):
+        loader_kwargs.setdefault('pinned_memory', self.cuda == 'cuda')
+        # Use multiple worker processes when NOT DEBUGGING
+        if gettrace() is None:
+            # Find number of cpus available (taken from second answer):
+            # https://stackoverflow.com/questions/1006289/how-to-find-out-the-number-of-cpus-using-python
+            m = re.search(r'(?m)^Cpus_allowed:\s*(.*)$',
+                          open('/proc/self/status').read())
+            nw = bin(int(m.group(1).replace(',', ''), 16)).count('1')
+        else:
+            # 0 workers means not extra processes are spun up
+            nw = 2
+        loader_kwargs.setdefault('num_workers', int(nw - 2))
+        return loader_kwargs
 
     def _get_batch(self, iterator):
         return [x.to(self.device) for x in next(iterator)]
@@ -275,6 +297,13 @@ class StandardClassification(BaseProcess):
                       constructed. If both training and validation datasets are provided as `DataLoaders`, this will be
                       ignored.
 
+        Notes
+        -----
+        If the datasets above are provided as DN3atasets, automatic optimizations are performed to speed up loading.
+        These include setting the number of workers = to the number of CPUs/system threads - 1, and pinning memory for
+        rapid CUDA transfer if leveraging the GPU. Unless you are very comfortable with PyTorch, it's probably better
+        to not provide your own DataLoader, and let this be done automatically.
+
         Returns
         -------
         train_log : Dataframe
@@ -283,6 +312,7 @@ class StandardClassification(BaseProcess):
                          Validation metrics after each epoch of training as a pandas dataframe
         """
         loader_kwargs.setdefault('batch_size', batch_size)
+        loader_kwargs = self._optimize_dataloader_kwargs(**loader_kwargs)
         training_dataset = _check_make_dataloader(training_dataset, **loader_kwargs)
         # validation_dataset = _check_make_dataloader(validation_dataset, **loader_kwargs)
 

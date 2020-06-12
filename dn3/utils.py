@@ -27,13 +27,19 @@ def unfurl(_set: set):
     return tuple(x for z in _list for x in z)
 
 
-def min_max_normalize(x: torch.Tensor):
+def min_max_normalize(x: torch.Tensor, low=-1, high=1):
     if len(x.shape) == 2:
-        return (x - x.min()) / (x.max() - x.min())
+        x = (x - x.min()) / (x.max() - x.min())
     elif len(x.shape) == 3:
-        return (x - torch.min(torch.min(x, keepdim=True, dim=1)[0], keepdim=True, dim=-1)[0]) / \
+        x = (x - torch.min(torch.min(x, keepdim=True, dim=1)[0], keepdim=True, dim=-1)[0]) / \
                (torch.max(torch.max(x, keepdim=True, dim=1)[0], keepdim=True, dim=-1)[0] -
                 torch.min(torch.min(x, keepdim=True, dim=1)[0], keepdim=True, dim=-1)[0])
+
+    # Now all scaled 0 -> 1, remove 0.5 bias
+    x -= 0.5
+    # Adjust for low/high bias and scale up
+    x += (high + low) / 2
+    return (high - low) * x
 
 
 def make_epochs_from_raw(raw: mne.io.Raw, tmin, tlen, event_ids=None, baseline=None, decim=1, filter_bp=None,

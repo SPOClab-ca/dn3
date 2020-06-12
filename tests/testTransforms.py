@@ -3,9 +3,10 @@ import unittest
 import mne
 import torch
 
+from dn3.utils import min_max_normalize
 from dn3.transforms.channels import DEEP_1010_CHS_LISTING
 from dn3.transforms.basic import ZScore, MappingDeep1010
-from tests.dummy_data import create_dummy_dataset, retrieve_underlying_dummy_data, EVENTS
+from tests.dummy_data import create_dummy_dataset, retrieve_underlying_dummy_data, EVENTS, check_epoch_against_data
 
 
 def simple_zscoring(data: torch.Tensor):
@@ -53,9 +54,18 @@ class TestTransforms(unittest.TestCase):
                 self.assertTrue(torch.allclose(x, simple_zscoring(retrieve_underlying_dummy_data(ev_id))))
 
     def test_MapDeep1010Channels(self):
-        transform = MappingDeep1010(self.dataset.channels)
+        transform = MappingDeep1010(self.dataset)
         self.dataset.add_transform(transform)
-        self.assertEqual((len(DEEP_1010_CHS_LISTING), 2), self.dataset.channels.shape)
+        with self.subTest('channel shape'):
+            self.assertEqual((len(DEEP_1010_CHS_LISTING), 2), self.dataset.channels.shape)
+
+        i = 0
+        for x, y in self.dataset:
+            i += 1
+            with self.subTest(i=i):
+                ev_id = (i - 1) % len(EVENTS)
+                self.assertTrue(x.max() == 1)
+                self.assertTrue(x.min() == -1)
 
 
 if __name__ == '__main__':

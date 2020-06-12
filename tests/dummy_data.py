@@ -20,8 +20,8 @@ NUM_FOLDS = 5
 
 
 def create_basic_data():
-    sinx = np.sin(np.arange(START_POINT, END_POINT, 1 / SFREQ) * 10).astype('float')
-    cosx = np.cos(np.arange(START_POINT, END_POINT, 1 / SFREQ) * 10).astype('float')
+    sinx = 0.5 * np.sin(np.arange(START_POINT, END_POINT, 1 / SFREQ) * 10).astype('float')
+    cosx = 0.5 * np.cos(np.arange(START_POINT, END_POINT, 1 / SFREQ) * 10).astype('float')
     events = np.zeros_like(sinx)
     for ev_sample, label in EVENTS:
         events[ev_sample] = label
@@ -64,24 +64,26 @@ def create_dummy_dataset(epoched=True, sessions_per_thinker=2, num_thinkers=THIN
                          sess_args=dict(), thinker_args=dict(), **dataset_args):
     thinker = create_dummy_thinker(epoched=epoched, sessions_per_thinker=sessions_per_thinker, sess_args=sess_args,
                                    **thinker_args)
+    info = DatasetInfo('Test dataset', data_max=1.0, data_min=-1.0)
+    dataset_args.setdefault('dataset_info', info)
     return Dataset({"p{}".format(i): thinker.clone() for i in range(num_thinkers)}, **dataset_args)
 
 
 # Check functions
 # ---------------
 
-def check_raw_against_data(retrieved, index):
+def check_raw_against_data(retrieved, index, normalizer=lambda x: x):
     data = torch.from_numpy(create_basic_data())
     sample_len = int(TLEN * SFREQ)
-    return torch.allclose(retrieved, min_max_normalize(data[:2, index:index+sample_len]).float())
+    return torch.allclose(retrieved, normalizer(data[:2, index:index+sample_len].float()))
 
 
 def retrieve_underlying_dummy_data(event_index):
     data = torch.from_numpy(create_basic_data())
     sample = EVENTS[event_index][0]
     window = slice(int(sample - TMIN * SFREQ), int(sample + (TLEN + TMIN) * SFREQ))
-    return min_max_normalize(data[:, window]).float()
+    return data[:, window].float()
 
 
-def check_epoch_against_data(retrieved, event_index):
-    return torch.allclose(retrieved, retrieve_underlying_dummy_data(event_index))
+def check_epoch_against_data(retrieved, event_index, normalizer=lambda x: x):
+    return torch.allclose(retrieved, normalizer(retrieve_underlying_dummy_data(event_index)))
