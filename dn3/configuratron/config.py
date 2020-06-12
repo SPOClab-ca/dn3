@@ -53,24 +53,24 @@ class ExperimentConfig:
             self._original_config = yaml.load(fio, Loader=yaml.FullLoader)
         working_config = self._original_config.copy()
 
-        if 'DN3' not in working_config.keys():
-            raise DN3ConfigException("Toplevel `DN3` not found in: {}".format(config_filename))
-        if 'datasets' not in working_config['DN3'].keys():
+        if 'Configuratron' not in working_config.keys():
+            raise DN3ConfigException("Toplevel `Configuratron` not found in: {}".format(config_filename))
+        if 'datasets' not in working_config.keys():
             raise DN3ConfigException("`datasets` not found in {}".format([k.lower() for k in
-                                                                          working_config["DN3"].keys()]))
-        if not isinstance(working_config['DN3']['datasets'], list):
-            raise DN3ConfigException("`datasets` must be a list")
-        self._dataset_names = working_config['DN3']['datasets']
+                                                                          working_config.keys()]))
 
+        self.experiment = working_config.pop('Configuratron')
+
+        self._make_deep1010 = True if self.experiment is None else self.experiment.get('deep1010', True)
         self.datasets = dict()
-        for ds in self._dataset_names:
-            if ds not in working_config.keys():
-                raise DN3ConfigException("Dataset: {} not found in {}".format(
-                    ds, [k for k in working_config.keys() if k != 'DN3']))
-            self.datasets[ds] = DatasetConfig(ds, working_config.pop(ds))
+
+        ds_entries = working_config.pop('datasets')
+        for i, ds in enumerate(ds_entries):
+            name, ds = (ds, ds_entries[ds]) if isinstance(ds, str) else (str(i), ds)
+            self.datasets[name] = DatasetConfig(name, ds, deep1010=self._make_deep1010)
+
         print("Configuratron found {} datasets.".format(len(self.datasets), "s" if len(self.datasets) > 0 else ""))
 
-        self.experiment = working_config.pop('DN3')
         if adopt_auxiliaries:
             def namespaceify(v):
                 if isinstance(v, dict):
@@ -86,7 +86,7 @@ class DatasetConfig:
     """
     Parses dataset entries in DN3 config
     """
-    def __init__(self, name: str, config: dict, adopt_auxiliaries=True, ext_handlers=None):
+    def __init__(self, name: str, config: dict, adopt_auxiliaries=True, ext_handlers=None, deep1010=True):
         """
         Parses dataset entries in DN3 config
         Parameters
@@ -260,7 +260,7 @@ class DatasetConfig:
 
         raw = self._load_raw(session)
         if self._create_raw_recordings:
-            return RawTorchRecording(raw, self.tlen, stride=self.stride)
+            return RawTorchRecording(raw, self.tlen, stride=self.stride, decimate=self.decimate)
 
         use_annotations = self.events is not None and True in [isinstance(x, str) for x in self.events.keys()]
         epochs = make_epochs_from_raw(raw, self.tmin, self.tlen, event_ids=self.events, baseline=self.baseline,

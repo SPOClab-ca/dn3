@@ -67,7 +67,7 @@ class BaseProcess(object):
         self.metrics.update(**metrics)
 
     def _optimize_dataloader_kwargs(self, **loader_kwargs):
-        loader_kwargs.setdefault('pinned_memory', self.cuda == 'cuda')
+        loader_kwargs.setdefault('pin_memory', self.cuda == 'cuda')
         # Use multiple worker processes when NOT DEBUGGING
         if gettrace() is None:
             # Find number of cpus available (taken from second answer):
@@ -183,24 +183,27 @@ class BaseProcess(object):
         metrics : OrderedDict
                 Metric scores for the entire
         """
+        num_points = 0
         pbar = tqdm.trange(len(dataset), desc="Iteration")
         data_iterator = iter(dataset)
         metrics = OrderedDict()
 
-        def update_metrics(new_metrics: dict, iterations):
+        def update_metrics(new_metrics: dict, batch_size):
             if len(metrics) == 0:
                 return metrics.update(new_metrics)
             else:
                 for m in new_metrics:
-                    metrics[m] = (metrics[m] * (iterations - 1) + new_metrics[m]) / iterations
+                    metrics[m] = (metrics[m] * (num_points - batch_size) + new_metrics[m] * batch_size) / num_points
 
         with torch.no_grad():
             for iteration in pbar:
                 inputs = self._get_batch(data_iterator)
+                bs = inputs[0].shape[0]
                 outputs = self.forward(*inputs)
                 calc_metrics = self.calculate_metrics(inputs, outputs)
                 calc_metrics['loss'] = self.calculate_loss(inputs, outputs).item()
-                update_metrics(calc_metrics, iteration+1)
+                num_points += bs
+                update_metrics(calc_metrics, bs)
                 pbar.set_postfix(metrics)
 
         return metrics
@@ -261,6 +264,7 @@ class StandardClassification(BaseProcess):
     def evaluate(self, dataset, **loader_kwargs):
         loader_kwargs.setdefault('batch_size', 1)
         self.classifier.train(False)
+        loader_kwargs['drop_last'] = False
         dataset = _check_make_dataloader(dataset)
         return super(StandardClassification, self).evaluate(dataset)
 
@@ -348,7 +352,7 @@ class StandardClassification(BaseProcess):
                     step_callback(train_metrics)
 
             if validation_dataset is not None:
-                val_metrics = self.evaluate(validation_dataset)
+                val_metrics = self.evaluate(validation_dataset, **loader_kwargs)
 
                 self.standard_logging(val_metrics, "End of Epoch {}".format(epoch))
 

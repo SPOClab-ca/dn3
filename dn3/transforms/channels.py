@@ -85,7 +85,7 @@ def _valid_character_heuristics(name, informative_characters):
 def _check_num_and_get_types(type_dict: OrderedDict):
     type_lists = list()
     for ch_type, max_num in zip(('eog', 'ref'), (len(EOG_INDS), len(REF_INDS))):
-        channels = [ch_name for ch_name, ch_type in type_dict.items() if ch_type == ch_type]
+        channels = [ch_name for ch_name, _type in type_dict.items() if _type == ch_type]
 
         for name in channels[max_num:]:
             print("Losing assumed {} channel {} because there are too many.".format(ch_type, name))
@@ -158,7 +158,7 @@ def map_named_channels_deep_1010(channel_names: list, EOG=None, ear_ref=None, ex
 
     if isinstance(EOG, str):
         EOG = [EOG] * 4
-    elif EOG is None:
+    elif EOG is None or len(EOG) == 0:
         EOG = []
     elif len(EOG) == 2:
         EOG = EOG * 2

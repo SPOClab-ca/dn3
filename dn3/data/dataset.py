@@ -178,7 +178,7 @@ class RawTorchRecording(_Recording):
           The number of samples to skip between each starting offset of loaded samples.
     """
 
-    def __init__(self, raw: mne.io.Raw, tlen, session_id=0, person_id=0, stride=1, picks=None, **kwargs):
+    def __init__(self, raw: mne.io.Raw, tlen, session_id=0, person_id=0, stride=1, picks=None, decimate=1, **kwargs):
 
         """
         Interface for bridging mne Raw instances as PyTorch compatible "Dataset".
@@ -196,9 +196,13 @@ class RawTorchRecording(_Recording):
               A unique (with respect to an eventual dataset) identifier for the particular person being recorded.
         stride : int
               The number of samples to skip between each starting offset of loaded samples.
+        decimate : int
+                   The number of samples to move before taking the next sample, in other words take every decimate'th
+                   sample.
         """
         super().__init__(raw.info, session_id, person_id, tlen)
         self.raw = raw
+        self.decimate = int(decimate)
         self.stride = stride
         self.max = kwargs.get('max', None)
         self.min = kwargs.get('min', 0)
@@ -215,7 +219,7 @@ class RawTorchRecording(_Recording):
         scale = 1 if self.max is None else (x.max() - x.min()) / (self.max - self.min)
         if scale > 1 or np.isnan(scale):
             print('Warning: scale exeeding 1')
-        x = torch.from_numpy(x).float()
+        x = torch.from_numpy(x[:, ::self.decimate]).float()
 
         if torch.any(torch.isnan(x)):
             print("Nan found: raw {}, index {}".format(self.raw.filenames[0], index))

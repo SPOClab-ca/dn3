@@ -17,7 +17,7 @@ channels, sampling frequency or sequence length of the data.
 Multiple Worker Processes
 -------------------------
 After attaching enough transforms, you may find that, even with the deep learning done on the GPU that loading training
-data is the bottleneck
+data is the bottleneck.
 
 Preprocessors
 -------------

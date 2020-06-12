@@ -87,9 +87,9 @@ class DN3BaseModel(nn.Module):
         return self.classifier(features)
 
     @classmethod
-    def from_dataset(cls, dataset: DN3ataset, targets):
+    def from_dataset(cls, dataset: DN3ataset, targets, **modelargs):
         assert isinstance(dataset, DN3ataset)
-        return cls(targets, dataset.sequence_length, len(dataset.channels))
+        return cls(targets, dataset.sequence_length, len(dataset.channels), **modelargs)
 
 
 class LogRegNetwork(DN3BaseModel):
@@ -116,7 +116,9 @@ class TIDNet(DN3BaseModel):
     """
 
     def __init__(self, targets, samples, channels, s_growth=24, t_filters=32, do=0.4, pooling=20,
-                 temp_layers=2, spat_layers=2, temp_span=0.05, bottleneck=3, summary=-1):
+                 activation=nn.LeakyReLU, temp_layers=2, spat_layers=2, temp_span=0.05, bottleneck=3,
+                 summary=-1, weight_std=0.02):
+        self.weight_std = weight_std
         self.temp_len = math.ceil(temp_span * samples)
         summary = samples // pooling if summary == -1 else summary
         self._num_features = (t_filters + s_growth * spat_layers) * summary
@@ -124,16 +126,26 @@ class TIDNet(DN3BaseModel):
 
         self.temporal = nn.Sequential(
             Expand(axis=1),
-            TemporalFilter(1, t_filters, depth=temp_layers, temp_len=self.temp_len),
+            TemporalFilter(1, t_filters, depth=temp_layers, temp_len=self.temp_len, activation=activation),
             nn.MaxPool2d((1, pooling)),
             nn.Dropout2d(do),
         )
 
         self.spatial = DenseSpatialFilter(self.channels, s_growth, spat_layers, in_ch=t_filters, dropout_rate=do,
-                                          bottleneck=bottleneck)
+                                          bottleneck=bottleneck, activation=activation)
         self.extract_features = nn.Sequential(
             nn.AdaptiveAvgPool1d(int(summary)),
         )
+        self.apply(self.reset_weights)
+
+    def reset_weights(self, module):
+        if isinstance(module, (nn.Linear, nn.Conv2d, nn.Conv1d)):
+            module.weight.data.normal_(mean=0.0, std=self.weight_std)
+            if module.bias is not None:
+                module.bias.data.zero_()
+        elif isinstance(module, nn.BatchNorm2d):
+            module.bias.data.zero_()
+            module.weight.data.fill_(1.0)
 
     @property
     def num_features_for_classification(self):

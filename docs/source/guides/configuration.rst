@@ -1,11 +1,12 @@
+#################
 The Configuratron
-=========================
+#################
 *High-level dataset and experiment descriptions*
 
 .. contents:: :local:
 
 Why do I need this?
--------------------
+===================
 Configuration files are perhaps where the advantages of DN3 are most apparent. Ostensibly, integrating *multiple*
 datasets across a common deep learning is as simple as loading files of each dataset from disk to be fed into a common
 deep learning training loop. The reality however, is rarely that simple. DN3 uses `YAML <https://yaml.org/>`_ formatted
@@ -19,7 +20,7 @@ person, simply provided the top-level of this directory structure, a DN3 :any:`D
 easily adjustable *configuration* options.
 
 A Little More Specific
-----------------------
+======================
 Say we were evaluating a neural network architecture with some of our
 own data. We are happy with how it is currently working, but want to now evaluate it against a public dataset to
 compare with other work. Most of the time, this means writing a decent bit of code to load this new dataset. Instead,
@@ -55,39 +56,36 @@ Want to bandpass filter the data between 0.1Hz and 40Hz before use?
 Hopefully this illustrates the advantage of organizing datasets in this way.
 
 A Concrete Example
-------------------
-It take a little more to make this a DN3 configuration, but as simple as adding a special token (DN3) to the yaml file
-that houses your configuration. Consider the contents of 'my_config.yml':
+==================
+It take a little more to make this a DN3 configuration, but it's as simple as adding an empty **Configuratron** to the
+yaml file that makes your configuration. Consider the contents of 'my_config.yml':
 
 .. code-block:: yaml
 
-   DN3:
-     datasets:
-       - in_house_dataset
-       - public_dataset
+   Configuratron:
 
-   in_house_dataset:
-     name: "Awesome data"
-     tmin: -0.5
-     tlen: 1.5
-     picks:
-       - eeg
-       - emg
+   datasets:
+     in_house_dataset:
+       name: "Awesome data"
+       tmin: -0.5
+       tlen: 1.5
+       picks:
+         - eeg
+         - emg
 
-   public_dataset:
-     toplevel: /path/to/the/files
-     tmin: -0.1
-     tlen: 1.5
-     bandpass: [0.1, 40]
+     public_dataset:
+        toplevel: /path/to/the/files
+        tmin: -0.1
+        tlen: 1.5
+        bandpass: [0.1, 40]
 
    architecture:
      layers: 2
      activation: 'relu'
      dropout: 0.1
 
-Notice that the file begins with an entry called DN3 that has the datasets we are going to use specified in a list.
-This allows us to select *which datasets* are to be used for a given time. Say we want to ignore a dataset, we could
-comment it out (or we could get much fancier once we start to use the !include directive).
+The important entry here is `Configuratron`, that confirms the file-type, and `datasets` that lists the datasets
+we are going to use. The latter can either be named entries like the above, or a list of unnamed entries.
 
 Now, on the python side of things:
 
@@ -101,32 +99,49 @@ Now, on the python side of things:
        dataset = ds_config.auto_construct_dataset()
        # Do some awesome things
 
-The`dataset` variable above is now a DN3 :any:`Dataset`, which now readily supports loading trials for training or separation
-according to people and/or sessions.
+The`dataset` variable above is now a DN3 :any:`Dataset`, which now readily supports loading trials for training or
+separation according to people and/or sessions. Both the `in_house_dataset` and `public_dataset` will be available.
 
 That's great, but what's up with that 'architecture' entry?
------------------------------------------------------------
+===========================================================
 There isn't anything special to this, aside from providing a convenient location to add additional configuration
 values that one might need for a set of experiments. These fields will now be populated in the `experiment` variable
-above. So now, `experiment.architecture` is a `dict` with fields populated from the yaml file.
+above. So now, `experiment.architecture` is an object, with member variables populated from the yaml file.
 
 MOAR! I'm a power user
-----------------------
-One of the really cool (my Mom agrees) aspects of the configuratron is the inclusion of !include directives. Anywhere
-in the document, you can include other files that can be readily reinterpreted as YAML, as supported by the
+======================
+One of the really cool (my Mom says so) aspects of the configuratron is the addition of !include directives. Aside from
+the top level of the file, you can include other files that can be readily reinterpreted as YAML, as supported by the
 `pyyaml-include <https://github.com/tanbro/pyyaml-include>`_ project. This means one could specify all the available
 datasets in one file called *datasets.yml* and include the complete listing for each configuration, say
-*config_shallow.yml* and *config_deep.yml* by saying `!include datasets.yml`. *Hopefully that explains why the datasets
-that are in fact in-use for each configuration are listed in their own special place*. Or you could include the json
+*config_shallow.yml* and *config_deep.yml* by saying `datasets: !include datasets.yml`. Or you could include JSON
 architecture configurations (potentially backed by your favourite cloud-based hyperparameter tracking module).
 
 More directives might be added to the configuratron in the future, and we warmly welcome any suggestions/implementations
 others may come up with.
 
-Complete listing of dataset configuration fields
-------------------------------------------------
+Complete listing of configuratron options
+=========================================
 
-### Required entries
+Optional entries
+----------------
+
+use_only *(list)*
+  A convenience option, whose purpose is to filter from datasets only the names in this list. This allows for inclusion
+  of a large dataset file, and referencing certain named datasets. In this case, the names are the yaml key referencing
+  the configuration.
+
+deep1010 *(bool)*
+  This will normalize and map all configuratron generated datasets using the :any:`MappingDeep1010` transform. This
+  is on by default.
+
+
+
+Complete listing of dataset configuration fields
+================================================
+
+Required entries
+----------------
 
 toplevel *(required, directory)*
   Specifies the toplevel directory of the dataset.
@@ -137,7 +152,8 @@ samples *(required-ish, float)*
   As an alternative to tlen, for when you want to align datasets with pretty similar sampling frequencies, you can
   specify samples. If used, tlen is ignored (and not needed) and is inferred from the number of samples desired.
 
-### Optional entries
+Optional entries
+----------------
 
 tmin *(float)*
   If specified, epochs the recordings into trials at each event (can be modified by *events* config below) onset with
@@ -186,7 +202,8 @@ decimate *(bool)*
   Only works with epoch data, must be > 0, default 1. Amount to decimate trials.
 
 name *(string)*
-  A more human-readable name for the dataset.
+  A more human-readable name for the dataset. This should be used to describe the dataset itself, not one of
+  (potentially) many different configurations of said dataset (which might all share this parameter).
 
 extensions *(list)*
   The file extensions to seek out when searching for sessions in the dataset. These should include the '.', as in '.edf'
