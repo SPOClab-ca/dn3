@@ -1,0 +1,29 @@
+Configuratron:
+  deep1010: False
+
+datasets:
+  test_ds:
+    toplevel: '.'
+    tmin: -0.25
+    tlen: 3
+    name: "MMIDB"
+    events:
+      T1: 8
+      T2: 5
+    picks:
+      - eeg
+    exclude_people:
+      - S088
+      - S090
+      - S092
+      - S100
+    decimate: 1
+    baseline: [-0.25, ~]
+    bandpass: [0.1, 20]
+    drop_bad: True
+    max: 1.5
+    min: -1.5
+    file_extensions:
+      - '.edf'
+
+

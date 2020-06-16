@@ -205,6 +205,19 @@ picks *(list)*
    - The names of the desired channels
    - Channel types as used by `MNE's pick_types() <https://mne.tools/stable/generated/mne.pick_types.html>`_
 
+  By default, will select only eeg and meg channels (if meg, will try to automatically resolve
+  `as described here <https://mne.tools/stable/generated/mne.pick_types.html>`_)
+
+exclude_channels *(list)*
+  This is similar to the above, except it is a list of *nix pattern match exclusions. Which means it can be the channel
+  names (that you want to exclude) themselves, or use wildards such as "FT*" or, "F[!39]". The first excludes all
+  channels beginning with FT, the second, excludes all channels beginning with F *except* F3 and F9.
+
+rename_channels *(dict)*
+  Using this option, key's are the **new** name, and values are *nix-style pattern matching strings for the old channel
+  names. *Warning* if an old channel matches to multiple new ones, new channel used is selected arbitrarily. Renaming
+  is performed **before** exclusion.
+
 decimate *(bool)*
   Only works with epoch data, must be > 0, default 1. Amount to decimate trials.
 

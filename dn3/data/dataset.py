@@ -40,10 +40,6 @@ class DN3ataset(TorchDataset):
         raise NotImplementedError
 
     @property
-    def channel_types(self):
-        raise NotImplementedError
-
-    @property
     def sequence_length(self):
         raise NotImplementedError
 
@@ -115,10 +111,12 @@ class _Recording(DN3ataset, ABC):
     """
     Abstract base class for any supported recording
     """
-    def __init__(self, info, session_id, person_id, tlen):
+    def __init__(self, info, session_id, person_id, tlen, ch_ind_picks=None):
         super().__init__()
         self.info = info
-        self._recording_channels = [(ch['ch_name'], int(ch['kind'])) for ch in info['chs']]
+        self.picks = ch_ind_picks if ch_ind_picks is not None else list(range(len(info['chs'])))
+        self._recording_channels = [(ch['ch_name'], int(ch['kind'])) for idx, ch in enumerate(info['chs'])
+                                    if idx in self.picks]
         self._recording_sfreq = info['sfreq']
         self._recording_len = int(self._recording_sfreq * tlen)
         assert self._recording_sfreq is not None
@@ -178,7 +176,8 @@ class RawTorchRecording(_Recording):
           The number of samples to skip between each starting offset of loaded samples.
     """
 
-    def __init__(self, raw: mne.io.Raw, tlen, session_id=0, person_id=0, stride=1, picks=None, decimate=1, **kwargs):
+    def __init__(self, raw: mne.io.Raw, tlen, session_id=0, person_id=0, stride=1, ch_ind_picks=None, decimate=1,
+                 **kwargs):
 
         """
         Interface for bridging mne Raw instances as PyTorch compatible "Dataset".
@@ -196,17 +195,18 @@ class RawTorchRecording(_Recording):
               A unique (with respect to an eventual dataset) identifier for the particular person being recorded.
         stride : int
               The number of samples to skip between each starting offset of loaded samples.
+        ch_ind_picks : list[int]
+                       A list of channel indices that have been selected for.
         decimate : int
                    The number of samples to move before taking the next sample, in other words take every decimate'th
                    sample.
         """
-        super().__init__(raw.info, session_id, person_id, tlen)
+        super().__init__(raw.info, session_id, person_id, tlen, ch_ind_picks)
         self.raw = raw
         self.decimate = int(decimate)
         self.stride = stride
         self.max = kwargs.get('max', None)
         self.min = kwargs.get('min', 0)
-        self.picks = picks
         self.__dict__.update(kwargs)
 
     def __getitem__(self, index):
@@ -229,7 +229,7 @@ class RawTorchRecording(_Recording):
         return self._execute_transforms(x)
 
     def __len__(self):
-        return (self.raw.n_times - self.sequence_length) // self.stride
+        return max(0, (self.raw.n_times - self.sequence_length) // self.stride)
 
     def preprocess(self, preprocessor: Preprocessor, apply_transform=True):
         self.raw = preprocessor(recording=self)
@@ -239,7 +239,7 @@ class RawTorchRecording(_Recording):
 
 class EpochTorchRecording(_Recording):
     def __init__(self, epochs: mne.Epochs, session_id=0, person_id=0, force_label=None, cached=False,
-                 picks=None, event_mapping=None):
+                 ch_ind_picks=None, event_mapping=None):
         """
         Wraps :any:`Epoch` objects so that they conform to the :any:`Recording` structure.
         Parameters
@@ -249,15 +249,15 @@ class EpochTorchRecording(_Recording):
         person_id
         force_label
         cached
-        picks
+        ch_ind_picks
         event_mapping : dict, Optional
                         Mapping of human-readable names to numeric codes used by `epochs`.
         """
-        super().__init__(epochs.info, session_id, person_id, epochs.tmax - epochs.tmin + 1 / epochs.info['sfreq'])
+        super().__init__(epochs.info, session_id, person_id, epochs.tmax - epochs.tmin + 1 / epochs.info['sfreq'],
+                         ch_ind_picks)
         self.epochs = epochs
         self._cache = [None for _ in range(len(epochs.events))] if cached else None
         self.force_label = force_label if force_label is None else torch.tensor(force_label)
-        self.picks = picks
         if event_mapping is None:
             # mne parses this for us
             event_mapping = epochs.event_id
@@ -354,6 +354,9 @@ class Thinker(DN3ataset, ConcatDataset):
         for _id in self.sessions:
             self.sessions[_id].session_id = _id
         ConcatDataset.__init__(self, self.sessions.values())
+
+    def __str__(self):
+        return "Person {} - {} trials".format(self.person_id, len(self))
 
     @property
     def sfreq(self):
@@ -732,7 +735,7 @@ class Dataset(DN3ataset, ConcatDataset):
         return sequence_length
 
     def get_thinkers(self):
-        return list(self._thinkers.keys())
+        return sorted(list(self._thinkers.keys()))
 
     def __len__(self):
         return self.cumulative_sizes[-1]
@@ -770,6 +773,9 @@ class Dataset(DN3ataset, ConcatDataset):
             if len(_val_set.intersection(_test_set)) > 0:
                 raise ValueError("Validation and test overlap with ids: {}".format(_val_set.intersection(_test_set)))
 
+            print('Validation: {}'.format(validating))
+            print('Test:       {}'.format(testing))
+
             yield training, validating, testing
 
     def loso(self, validation_person_id=None, test_person_id=None):
@@ -787,7 +793,9 @@ class Dataset(DN3ataset, ConcatDataset):
         test_person_id : (int, str, list, optional)
                          Same as `validation_person_id`, but for testing. However, testing may be a list when
                          validation is a single value. Thus if testing is N ids, will yield N values, with a consistent
-                         single validation person.
+                         single validation person. If a single id (int or str), and `validation_person_id` is not also
+                         a single id, will ignore `validation_person_id` and loop through all others that are not the
+                         `test_person_id`.
 
         Yields
         -------
@@ -798,18 +806,23 @@ class Dataset(DN3ataset, ConcatDataset):
         test : Thinker
                The test thinker
         """
-        if test_person_id is not None and not isinstance(test_person_id, Iterable) or isinstance(test_person_id, str):
-            if validation_person_id is None:
-                validation_person_id = [pid for pid in self.get_thinkers() if pid != test_person_id]
-            test_person_id = [test_person_id for _ in range(len(self.get_thinkers())-1)]
+        if isinstance(test_person_id, (str, int)) and isinstance(validation_person_id, (str, int)):
+            yield from self._generate_splits([[validation_person_id]], [[test_person_id]])
+            return
+        elif isinstance(test_person_id, str):
+            yield from self._generate_splits([[v] for v in self.get_thinkers() if v != test_person_id],
+                                             [[test_person_id] for _ in range(len(self.get_thinkers()) - 1)])
+            return
+
+        # Testing is now either a sequence or nothing. Should loop over everyone (unless validation is a single id)
+        if test_person_id is None and isinstance(validation_person_id, (str, int)):
+            test_person_id = [t for t in self.get_thinkers() if t != validation_person_id]
+            validation_person_id = [validation_person_id for _ in range(len(test_person_id))]
         elif test_person_id is None:
             test_person_id = [t for t in self.get_thinkers()]
 
-        if validation_person_id is not None and not isinstance(validation_person_id, Iterable) or \
-                isinstance(validation_person_id, str):
-            validation_person_id = [validation_person_id for _ in range(len(test_person_id))]
-        elif validation_person_id is None:
-            validation_person_id = [test_person_id[i-1] for i in range(len(test_person_id))]
+        if validation_person_id is None:
+            validation_person_id = [test_person_id[i - 1] for i in range(len(test_person_id))]
 
         if not isinstance(test_person_id, list) or len(test_person_id) != len(validation_person_id):
             raise ValueError("Test ids must be same length iterable as validation ids.")

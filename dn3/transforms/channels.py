@@ -99,9 +99,11 @@ def _heuristic_eog_resolution(eog_channel_name):
 
 
 def _heuristic_ref_resolution(ref_channel_name: str):
-    if ref_channel_name.find('A1') == -1:
+    ref_channel_name = ref_channel_name.replace('EAR', '')
+    ref_channel_name = ref_channel_name.replace('REF', '')
+    if ref_channel_name.find('A1') != -1 or ref_channel_name.find('L') != -1:
         return 'A1'
-    elif ref_channel_name.find('A2') == -1:
+    elif ref_channel_name.find('A2') != -1 or ref_channel_name.find('R') != -1:
         return 'A2'
     return "REF"
 
@@ -116,9 +118,10 @@ def _heuristic_eeg_resolution(eeg_ch_name: str):
 
 
 def _likely_eeg_channel(name):
-    for ch in DEEP_1010_CHS_LISTING[:_NUM_EEG_CHS]:
-        if ch in name.upper():
-            return True
+    if name is not None:
+        for ch in DEEP_1010_CHS_LISTING[:_NUM_EEG_CHS]:
+            if ch in name.upper():
+                return True
     return False
 
 
@@ -129,6 +132,10 @@ def _heuristic_resolution(old_type_dict: OrderedDict):
     new_type_dict = OrderedDict()
 
     for old_name, ch_type in old_type_dict.items():
+        if ch_type is None:
+            new_type_dict[old_name] = None
+            continue
+
         new_name = resolver[ch_type](old_name)
         if new_name is None:
             new_type_dict[old_name] = None
@@ -247,7 +254,7 @@ def map_dataset_channels_deep_1010(channels: np.ndarray, exclude_stim=True):
         ch_type = int(ch_type)
         if ch_type == FIFF.FIFFV_EEG_CH and _likely_eeg_channel(name):
             channel_types[name] = 'eeg'
-        elif ch_type == FIFF.FIFFV_EOG_CH:
+        elif ch_type == FIFF.FIFFV_EOG_CH or name in [DEEP_1010_CHS_LISTING[idx] for idx in EOG_INDS]:
             channel_types[name] = 'eog'
         elif ch_type == FIFF.FIFFV_STIM_CH:
             if exclude_stim:
@@ -256,7 +263,7 @@ def map_dataset_channels_deep_1010(channels: np.ndarray, exclude_stim=True):
             # if stim, always set as last extra
             channel_types[name] = 'extra'
             extra[-1] = name
-        elif 'REF' in name.upper() or 'A1' in name.upper() or 'A2' in name.upper():
+        elif 'REF' in name.upper() or 'A1' in name.upper() or 'A2' in name.upper() or 'EAR' in name.upper():
             channel_types[name] = 'ref'
         else:
             if extra_idx == _EXTRA_CHANNELS - 1 and not exclude_stim:

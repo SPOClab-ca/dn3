@@ -15,7 +15,7 @@ from torch.utils.data import DataLoader
 
 class BaseProcess(object):
 
-    def __init__(self, lr=0.001, warmup=None, l2_weight_decay=0.001, cuda=None, metrics=None,
+    def __init__(self, lr=0.001, warmup=None, l2_weight_decay=0.01, cuda=None, metrics=None,
                  **kwargs):
         """
         Initialization of the Base Trainable object. Any learning procedure that leverages DN3atasets should subclass
@@ -232,7 +232,7 @@ def _check_make_dataloader(dataset, **loader_kwargs):
 
 class StandardClassification(BaseProcess):
 
-    def __init__(self, classifier: torch.nn.Module, loss_fn=None, cuda=False, metrics=None, learning_rate=None,
+    def __init__(self, classifier: torch.nn.Module, loss_fn=None, cuda=None, metrics=None, learning_rate=None,
                  **kwargs):
         if isinstance(metrics, dict):
             metrics.setdefault('Accuracy', self._simple_accuracy)
@@ -241,7 +241,7 @@ class StandardClassification(BaseProcess):
         super().__init__(cuda=cuda, classifier=classifier, metrics=metrics, **kwargs)
         if isinstance(learning_rate, float):
             # fixme hardcoded weight-decay
-            self.set_optimizer(torch.optim.Adam(self.parameters(), lr=learning_rate, weight_decay=0.001))
+            self.set_optimizer(torch.optim.Adam(self.parameters(), lr=learning_rate, weight_decay=0.01, amsgrad=True))
         self.loss = torch.nn.CrossEntropyLoss().to(self.device) if loss_fn is None else loss_fn.to(self.device)
 
     @staticmethod
@@ -262,10 +262,11 @@ class StandardClassification(BaseProcess):
         return super(StandardClassification, self).train_step(*inputs)
 
     def evaluate(self, dataset, **loader_kwargs):
-        loader_kwargs.setdefault('batch_size', 1)
         self.classifier.train(False)
+        loader_kwargs.setdefault('batch_size', 1)
         loader_kwargs['drop_last'] = False
-        dataset = _check_make_dataloader(dataset)
+        loader_kwargs['shuffle'] = False
+        dataset = _check_make_dataloader(dataset, **loader_kwargs)
         return super(StandardClassification, self).evaluate(dataset)
 
     def forward(self, *inputs):

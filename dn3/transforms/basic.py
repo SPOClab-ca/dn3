@@ -87,6 +87,19 @@ class ZScore(BaseTransform):
         return (x - x.mean()) / x.std()
 
 
+class FixedScale(BaseTransform):
+    """
+    Scale the input to range from low to high
+    """
+    def __init__(self, low_bound=-1, high_bound=1):
+        super().__init__()
+        self.low_bound = low_bound
+        self.high_bound = high_bound
+
+    def __call__(self, x):
+        return min_max_normalize(x, self.low_bound, self.high_bound)
+
+
 class TemporalPadding(BaseTransform):
 
     def __init__(self, start_padding, end_padding, mode='constant', constant_value=0):

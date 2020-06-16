@@ -72,7 +72,7 @@ class DN3BaseModel(nn.Module):
 
         """
         classifier = nn.Linear(self.num_features_for_classification, self.targets)
-        classifier.weight.data.normal_(std=0.02)
+        nn.init.xavier_normal_(classifier.weight)
         classifier.bias.data.zero_()
         self.classifier = nn.Sequential(Flatten(), classifier)
 
@@ -88,6 +88,10 @@ class DN3BaseModel(nn.Module):
 
     @classmethod
     def from_dataset(cls, dataset: DN3ataset, targets, **modelargs):
+        print("Creating {} using: {} channels with trials of {} samples at {}Hz".format(cls.__name__,
+                                                                                        len(dataset.channels),
+                                                                                        dataset.sequence_length,
+                                                                                        dataset.sfreq))
         assert isinstance(dataset, DN3ataset)
         return cls(targets, dataset.sequence_length, len(dataset.channels), **modelargs)
 
@@ -136,16 +140,6 @@ class TIDNet(DN3BaseModel):
         self.extract_features = nn.Sequential(
             nn.AdaptiveAvgPool1d(int(summary)),
         )
-        self.apply(self.reset_weights)
-
-    def reset_weights(self, module):
-        if isinstance(module, (nn.Linear, nn.Conv2d, nn.Conv1d)):
-            module.weight.data.normal_(mean=0.0, std=self.weight_std)
-            if module.bias is not None:
-                module.bias.data.zero_()
-        elif isinstance(module, nn.BatchNorm2d):
-            module.bias.data.zero_()
-            module.weight.data.fill_(1.0)
 
     @property
     def num_features_for_classification(self):

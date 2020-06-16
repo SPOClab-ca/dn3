@@ -145,6 +145,12 @@ class DatasetConfig:
             elif isinstance(self.events, list):
                 self.events = dict(zip(self.events, range(len(self.events))))
             self.events = OrderedDict(self.events)
+        self.rename_channels = get_pop('rename_channels', dict())
+        if not isinstance(self.rename_channels, dict):
+            raise DN3ConfigException("Renamed channels must map new values to old values.")
+        self.exclude_channels = get_pop('exclude_channels', list())
+        if not isinstance(self.exclude_channels, list):
+            raise DN3ConfigException("Excluded channels must be in a list.")
 
         # other options
         self.data_max = get_pop('data_max')
@@ -187,7 +193,7 @@ class DatasetConfig:
         if self.picks is None:
             return False
         for pick in self.picks:
-            if pick not in self._PICK_TYPES:
+            if not isinstance(pick, str) or pick.lower() not in self._PICK_TYPES:
                 return False
         return True
 
@@ -285,6 +291,20 @@ class DatasetConfig:
                                                                                                raw.info['lowpass'],
                                                                                                raw.info['sfreq'],
                                                                                                self.decimate))
+        # Pick types
+        picks = pick_types(raw.info, **{t: t in self.picks for t in self._PICK_TYPES}) if self._picks_as_types() \
+            else list(range(raw.ch_names))
+
+        # Exclude channel index by pattern match
+        picks = ([idx for idx in picks if True not in [fnmatch(raw.ch_names[idx], pattern)
+                                                       for pattern in self.exclude_channels]])
+
+        # Rename channels
+        renaming_map = dict()
+        for new_ch, pattern in self.rename_channels.items():
+            for old_ch in [raw.ch_names[idx] for idx in picks if fnmatch(raw.ch_names[idx], pattern)]:
+                renaming_map[old_ch] = new_ch
+        raw = raw.rename_channels(renaming_map)
 
         if self.tlen is None:
             tlen = self._samples * self.decimate / raw.info['sfreq']
@@ -292,16 +312,18 @@ class DatasetConfig:
             tlen = self.tlen
 
         if self._create_raw_recordings:
-            recording = RawTorchRecording(raw, tlen, stride=self.stride, decimate=self.decimate)
+            recording = RawTorchRecording(raw, tlen, stride=self.stride, decimate=self.decimate, ch_ind_picks=picks)
         else:
             use_annotations = self.events is not None and True in [isinstance(x, str) for x in self.events.keys()]
             epochs = make_epochs_from_raw(raw, self.tmin, tlen, event_ids=self.events, baseline=self.baseline,
                                           decim=self.decimate, filter_bp=self.bandpass, drop_bad=self.drop_bad,
                                           use_annotations=use_annotations)
-            picks = pick_types(raw.info, **{t: t in self.picks for t in self._PICK_TYPES}) if self._picks_as_types() \
-                else self.picks
 
-            recording = EpochTorchRecording(epochs, picks=picks, event_mapping=self.events)
+            recording = EpochTorchRecording(epochs, ch_ind_picks=picks, event_mapping=self.events)
+
+        if len(recording) == 0:
+            raise DN3ConfigException("The recording at {} has no viable training data with the configuration options "
+                                     "provided. Consider excluding this file or changing parameters.")
 
         if self.deep1010:
             # FIXME dataset not fully formed, but we can hack together something for now

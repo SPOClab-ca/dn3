@@ -6,6 +6,7 @@ import json
 
 from pathlib import Path
 from dn3.configuratron.config import ExperimentConfig
+from tests.dummy_data import *
 
 _DATASET_URL = "https://physionet.org/files/eegmmidb/1.0.0/"
 _TEST_DATASET_LOCATION = "./test_dataset/"
@@ -37,25 +38,29 @@ def _clear_include_files():
 
 
 def _generate_include_files():
-    os.mkdir(_TMP_DIR)
     basic_include = dict(eyes=5, feet=False)
     glob_include = dict(events=[1, 4, 'f45'])
     json_include = dict(layers=2, dropout=0.5, activation='relu')
-    with open(_TMP_FN + '.yml', 'w') as stream:
-        yaml.dump(basic_include, stream)
-    with open(os.path.join(_TMP_DIR, _TMP_FN + '.yml'), 'w') as stream:
-        yaml.dump(glob_include, stream)
-    with open(_TMP_FN + '.json', 'w') as stream:
-        json.dump(json_include, stream)
+    if not os.path.exists(_TMP_DIR):
+        os.mkdir(_TMP_DIR)
+        with open(_TMP_FN + '.yml', 'w') as stream:
+            yaml.dump(basic_include, stream)
+        with open(os.path.join(_TMP_DIR, _TMP_FN + '.yml'), 'w') as stream:
+            yaml.dump(glob_include, stream)
+        with open(_TMP_FN + '.json', 'w') as stream:
+            json.dump(json_include, stream)
 
     return basic_include, glob_include, json_include
 
 
 class TestExperimentConfiguration(unittest.TestCase):
 
-    def setUp(self) -> None:
+    @classmethod
+    def setUpClass(cls) -> None:
         mne.set_log_level(False)
         download_test_dataset()
+
+    def setUp(self) -> None:
         self.basic_include, self.glob_include, self.json_include = _generate_include_files()
         self.experiment_config = ExperimentConfig('./test_dataset_config.yml')
 
@@ -87,11 +92,12 @@ class TestExperimentConfiguration(unittest.TestCase):
             with self.subTest(msg=k):
                 self.assertEqual(self.json_include[k], self.experiment_config.non_yaml.__dict__[k])
 
-    def tearDown(self):
+    @classmethod
+    def tearDownClass(cls) -> None:
         _clear_include_files()
 
 
-class TestDatasetConfiguration(unittest.TestCase):
+class TestRealDatasetConfiguratron(unittest.TestCase):
 
     NUM_SUBJECTS = 109
     RAW_TRIALS = 10000
@@ -99,8 +105,11 @@ class TestDatasetConfiguration(unittest.TestCase):
     SFREQ = 160.0
     ALT_SFREQ = 128.0
 
-    def setUp(self) -> None:
+    @classmethod
+    def setUpClass(cls) -> None:
         mne.set_log_level(False)
+
+    def setUp(self) -> None:
         self.basic_include, self.glob_include, self.json_include = _generate_include_files()
         self.experiment_config = ExperimentConfig('./test_dataset_config.yml')
         self.minimal_raw = self.experiment_config.datasets['mmidb_minimally_specified_raw']
@@ -123,8 +132,21 @@ class TestDatasetConfiguration(unittest.TestCase):
         # After exclusion, should have single SFREQ
         self.assertEqual(self.SFREQ / self.fully.decimate, dataset.sfreq)
 
-    def tearDown(self) -> None:
+    @classmethod
+    def tearDownClass(cls) -> None:
         _clear_include_files()
+
+
+class TestConfiguratronOptionals(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        mne.set_log_level(False)
+        raw = create_dummy_raw()
+        raw.save('test_dataset.raw.fif')
+
+    def setUp(self) -> None:
+        pass
 
 
 if __name__ == '__main__':
