@@ -560,7 +560,7 @@ class Dataset(DN3ataset, ConcatDataset):
         ----------
         thinkers : Iterable, dict
                    Either a sequence of `Thinker`, or a mapping of person_id to `Thinker`. If the latter, id's are
-                   overwritten by the mapping id's.
+                   overwritten by these id's.
         dataset_id : int
                      An identifier associated with data from the entire dataset. Unlike person and sessions, this should
                      simply be an integer for the sake of returning labels that can functionally be used for learning.
@@ -588,21 +588,17 @@ class Dataset(DN3ataset, ConcatDataset):
         self.update_id_returns(return_session_id, return_person_id, return_dataset_id, return_task_id)
         self.info = dataset_info
 
-        if not isinstance(thinkers, dict) and isinstance(thinkers, Iterable):
-            self._thinkers = OrderedDict()
-            for t in thinkers:
-                self.__add__(t, return_session_id=return_session_id)
+        if not isinstance(thinkers, Iterable):
+            raise ValueError("Provided thinkers must be in an iterable container, e.g. list, tuple, dicts")
 
-        elif isinstance(thinkers, dict):
-            self._thinkers = OrderedDict(thinkers)
-            self._reset_dataset()
-        else:
-            raise TypeError("Thinkers must be iterable or already processed dict.")
+        # Overwrite thinker ids with those provided as dict argument and sort by ids
+        if not isinstance(thinkers, dict):
+            thinkers = {t.person_id: t for t in thinkers}
 
-        def set_sess_return(name, thinker: Thinker):
-            thinker.return_session_id = return_session_id
-
-        self._apply(set_sess_return)
+        self._thinkers = OrderedDict()
+        for t in sorted(thinkers.keys()):
+            self.__add__(thinkers[t], person_id=t, return_session_id=return_session_id)
+        self._reset_dataset()
 
         self.dataset_id = torch.tensor(dataset_id) if dataset_id is not None else None
         self.task_id = torch.tensor(task_id) if task_id is not None else None
@@ -641,12 +637,16 @@ class Dataset(DN3ataset, ConcatDataset):
 
     def __str__(self):
         ds_name = "Dataset-{}".format(self.dataset_id) if self.info is None else self.info.dataset_name
-        return ">> {} << | {} people | {} trials".format(ds_name, len(self.get_thinkers()), len(self))
+        return ">> {} << | DSID: {} | {} people | {} trials | {} channels | {} samples/trial | {:.1f}Hz".format(
+            ds_name, self.dataset_id, len(self.get_thinkers()), len(self), len(self.channels), self.sequence_length,
+            self.sfreq)
 
-    def __add__(self, thinker, return_session_id=None):
+    def __add__(self, thinker, person_id=None, return_session_id=None):
         assert isinstance(thinker, Thinker)
         return_session_id = self.return_session_id if return_session_id is None else return_session_id
         thinker.return_session_id = return_session_id
+        if person_id is not None:
+            thinker.person_id = person_id
 
         if thinker.person_id in self._thinkers.keys():
             print("Warning. Person {} already in dataset... Merging sessions.".format(thinker.person_id))
@@ -735,7 +735,15 @@ class Dataset(DN3ataset, ConcatDataset):
         return sequence_length
 
     def get_thinkers(self):
-        return sorted(list(self._thinkers.keys()))
+        """
+        Accumulates a consistently ordered list of all the thinkers in the dataset. It is this order that any automatic
+        segmenting through :py:meth:`loso()` and :py:meth:`lmso()` will be done.
+
+        Returns
+        -------
+        thinker_names : list
+        """
+        return list(self._thinkers.keys())
 
     def __len__(self):
         return self.cumulative_sizes[-1]
@@ -773,6 +781,7 @@ class Dataset(DN3ataset, ConcatDataset):
             if len(_val_set.intersection(_test_set)) > 0:
                 raise ValueError("Validation and test overlap with ids: {}".format(_val_set.intersection(_test_set)))
 
+            print('Training:   {}'.format(testing))
             print('Validation: {}'.format(validating))
             print('Test:       {}'.format(testing))
 

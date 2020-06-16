@@ -15,20 +15,30 @@ from torch.utils.data import DataLoader
 
 class BaseProcess(object):
 
-    def __init__(self, lr=0.001, warmup=None, l2_weight_decay=0.01, cuda=None, metrics=None,
-                 **kwargs):
+    def __init__(self, lr=0.001, metrics=None, l2_weight_decay=0.01, cuda=None, **kwargs):
         """
         Initialization of the Base Trainable object. Any learning procedure that leverages DN3atasets should subclass
         this base class.
+
+        By default uses the SGD with momentum optimization.
 
         Parameters
         ----------
         cuda : bool, string, None
                If boolean, sets whether to enable training on the GPU, if a string, specifies can be used to specify
                which device to use. If None (default) figures it out automatically.
+        lr : float
+             The learning rate to use, this will probably something that should be tuned for each application.
+             Start with multiplying or dividing by values of 2, 5 or 10 to seek out a good number.
         metrics : dict, list
                   A dictionary of named (keys) metrics (values) or some iterable set of metrics that will be identified
                   by their class names.
+        l2_weight_decay : float
+                          One of the simplest and most common regularizing techniques. If you find a model rapidly
+                          reaching high training accuracy (and not validation) increase this. If having trouble fitting
+                          the training data, decrease this.
+        kwargs : dict
+                 Arguments that will be used by the processes' :py:meth:`BaseProcess.build_network()` method.
         """
         if cuda is None:
             cuda = torch.cuda.is_available()
@@ -53,10 +63,13 @@ class BaseProcess(object):
             if isinstance(self.__dict__[member], (torch.nn.Module, torch.Tensor)):
                 self.__dict__[member] = self.__dict__[member].to(self.device)
 
-        self.optimizer = torch.optim.Adam(self.parameters(), weight_decay=l2_weight_decay)
+        self.optimizer = torch.optim.SGD(self.parameters(), weight_decay=l2_weight_decay, lr=lr, nesterov=True)
         self.scheduler = None
+        self.lr = lr
+        self.weight_decay = l2_weight_decay
 
     def set_optimizer(self, optimizer):
+        assert isinstance(optimizer, torch.optim.optimizer.Optimizer)
         del self.optimizer
         self.optimizer = optimizer
 
@@ -238,21 +251,14 @@ class StandardClassification(BaseProcess):
             metrics.setdefault('Accuracy', self._simple_accuracy)
         else:
             metrics = dict(Accuracy=self._simple_accuracy)
-        super().__init__(cuda=cuda, classifier=classifier, metrics=metrics, **kwargs)
-        if isinstance(learning_rate, float):
-            # fixme hardcoded weight-decay
-            self.set_optimizer(torch.optim.Adam(self.parameters(), lr=learning_rate, weight_decay=0.01, amsgrad=True))
+        super(StandardClassification, self).__init__(cuda=cuda, lr=learning_rate, classifier=classifier,
+                                                     metrics=metrics, **kwargs)
         self.loss = torch.nn.CrossEntropyLoss().to(self.device) if loss_fn is None else loss_fn.to(self.device)
+        self.best_metric = None
 
     @staticmethod
     def _simple_accuracy(inputs, outputs: torch.Tensor):
         return (inputs[-1] == outputs.argmax(dim=-1)).float().mean().item()
-
-    def _easy_scheduler(self, scheduler_string: str, epochs, total_iterations):
-        if scheduler_string.lower() == 'cosine':
-            return torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, total_iterations)
-        if scheduler_string.lower() == 'cosine_with_restarts':
-            return torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(self.optimizer, )
 
     def parameters(self):
         return self.classifier.parameters()
@@ -279,8 +285,27 @@ class StandardClassification(BaseProcess):
     def calculate_loss(self, inputs, outputs):
         return self.loss(outputs, inputs[-1])
 
+    def _retain_best(self, old_state_dict: dict, metrics_to_check: dict, retain_string: str):
+        if retain_string is None:
+            return old_state_dict
+        best_state_dict = old_state_dict
+
+        def found_best():
+            tqdm.tqdm.write("Best {}. Retaining model params...".format(retain_string))
+            self.best_metric = metrics_to_check[retain_string]
+            return self.classifier.state_dict()
+
+        if retain_string not in metrics_to_check.keys():
+            tqdm.tqdm.write("No metric {} found in recorded metrics. Not saving best.")
+        if retain_string == 'loss' and metrics_to_check[retain_string] < self.best_metric:
+            best_state_dict = found_best()
+        elif retain_string != 'loss' and metrics_to_check[retain_string] > self.best_metric:
+            best_state_dict = found_best()
+
+        return best_state_dict
+
     def fit(self, training_dataset, epochs=1, validation_dataset=None, step_callback=None,
-            epoch_callback=None, batch_size=8, scheduler=None, **loader_kwargs):
+            epoch_callback=None, batch_size=8, warmup_frac=0.2, retain_best='loss', **loader_kwargs):
         """
         sklearn/keras-like convenience method to simply proceed with training across multiple epochs of the provided
         dataset
@@ -297,6 +322,13 @@ class StandardClassification(BaseProcess):
         batch_size : int
                      The batch_size to be used for the training and validation datasets. This is ignored if they are
                      provided as `DataLoader`.
+        warmup_frac : float
+                      The fraction of iterations that will be spent *increasing* the learning rate under the default
+                      1cycle policy (with cosine annealing). Value will be automatically clamped values between [0, 0.5]
+        retain_best : (str, None)
+                      **If `validation_dataset` is provided**, which model weights to retain. If 'loss' (default), will
+                      retain the model at the epoch with the lowest validation loss. If another string, will assume that
+                      is the metric to monitor for the *highest score*. If None, the final model is used.
         loader_kwargs :
                       Any remaining keyword arguments will be passed as such to any DataLoaders that are automatically
                       constructed. If both training and validation datasets are provided as `DataLoaders`, this will be
@@ -321,11 +353,18 @@ class StandardClassification(BaseProcess):
         training_dataset = _check_make_dataloader(training_dataset, **loader_kwargs)
         # validation_dataset = _check_make_dataloader(validation_dataset, **loader_kwargs)
 
-        if scheduler is None:
-            scheduler = self.scheduler
+        _clear_scheduler_after = self.scheduler is None
+        if _clear_scheduler_after:
+            self.set_scheduler(
+                torch.optim.lr_scheduler.OneCycleLR(self.optimizer, self.lr, epochs=epochs,
+                                                    steps_per_epoch=len(training_dataset),
+                                                    pct_start=warmup_frac)
+            )
 
         validation_log = list()
         train_log = list()
+        self.best_metric = None
+        best_model_state_dict = self.classifier.state_dict()
 
         metrics = OrderedDict()
 
@@ -344,6 +383,8 @@ class StandardClassification(BaseProcess):
                 inputs = self._get_batch(data_iterator)
                 train_metrics = self.train_step(*inputs)
                 train_metrics['lr'] = self.optimizer.param_groups[0]['lr']
+                if 'momentum' in self.optimizer.defaults:
+                    train_metrics['momentum'] = self.optimizer.param_groups[0]['momentum']
                 update_metrics(train_metrics, iteration+1)
                 pbar.set_postfix(metrics)
                 train_metrics['epoch'] = epoch
@@ -354,12 +395,19 @@ class StandardClassification(BaseProcess):
 
             if validation_dataset is not None:
                 val_metrics = self.evaluate(validation_dataset, **loader_kwargs)
-
                 self.standard_logging(val_metrics, "End of Epoch {}".format(epoch))
+                best_model_state_dict = self._retain_best(best_model_state_dict, val_metrics, retain_best)
 
                 val_metrics['epoch'] = epoch
                 validation_log.append(val_metrics)
                 if callable(epoch_callback):
                     epoch_callback(val_metrics)
+
+        if _clear_scheduler_after:
+            self.set_scheduler(None)
+
+        if retain_best is not None:
+            tqdm.tqdm.write("Loading best model...")
+            self.classifier.load_state_dict(best_model_state_dict)
 
         return DataFrame(train_log), DataFrame(validation_log)

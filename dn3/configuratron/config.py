@@ -293,7 +293,7 @@ class DatasetConfig:
                                                                                                self.decimate))
         # Pick types
         picks = pick_types(raw.info, **{t: t in self.picks for t in self._PICK_TYPES}) if self._picks_as_types() \
-            else list(range(raw.ch_names))
+            else list(range(len(raw.ch_names)))
 
         # Exclude channel index by pattern match
         picks = ([idx for idx in picks if True not in [fnmatch(raw.ch_names[idx], pattern)
