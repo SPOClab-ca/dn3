@@ -4,7 +4,7 @@ import mne
 import torch
 
 from dn3.utils import min_max_normalize
-from dn3.transforms.channels import DEEP_1010_CHS_LISTING
+from dn3.transforms.channels import DEEP_1010_CHS_LISTING, stringify_channel_mapping
 from dn3.transforms.basic import ZScore, MappingDeep1010
 from tests.dummy_data import create_dummy_dataset, retrieve_underlying_dummy_data, EVENTS, check_epoch_against_data
 
@@ -66,6 +66,11 @@ class TestTransforms(unittest.TestCase):
                 ev_id = (i - 1) % len(EVENTS)
                 self.assertTrue(x.max() == 1)
                 self.assertTrue(x.min() == -1)
+
+    def test_MapDeep1010Print(self):
+        ch_names = [ch[0] for ch in self.dataset.channels]
+        transform = MappingDeep1010(self.dataset)
+        stringify_channel_mapping(ch_names, transform.mapping.numpy())
 
 
 if __name__ == '__main__':

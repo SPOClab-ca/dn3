@@ -2,6 +2,7 @@ import yaml
 from yamlinclude import YamlIncludeConstructor
 import tqdm
 import mne.io as loader
+import numpy as np
 
 from fnmatch import fnmatch
 from pathlib import Path
@@ -11,6 +12,7 @@ from mne import pick_types
 from dn3.data.dataset import Dataset, RawTorchRecording, EpochTorchRecording, Thinker, DatasetInfo
 from dn3.utils import make_epochs_from_raw, DN3ConfigException
 from dn3.transforms.basic import MappingDeep1010
+from dn3.transforms.channels import stringify_channel_mapping
 
 
 _SUPPORTED_EXTENSIONS = {
@@ -161,6 +163,7 @@ class DatasetConfig:
         self.exclude_people = get_pop('exclude_people', list())
         self.exclude_sessions = get_pop('exclude_sessions', list())
         self.deep1010 = deep1010
+        self._different_deep1010s = list()
 
         self._samples = get_pop('samples', samples)
 
@@ -266,6 +269,12 @@ class DatasetConfig:
             else:
                 self._excluded_people.append(person)
         return mapping
+
+    def _add_deep1010(self, ch_names: list, deep1010map: np.ndarray):
+        for old_names, old_map in self._different_deep1010s:
+            if np.all(deep1010map == old_map):
+                return
+        self._different_deep1010s.append((ch_names, deep1010map))
 
     def _load_raw(self, path: Path):
         if path.suffix in self._extension_handlers:
@@ -386,6 +395,9 @@ class DatasetConfig:
         info = DatasetInfo(self.name, self.data_max, self.data_min, self._excluded_people, self._excluded_sessions)
         dsargs.setdefault('dataset_info', info)
         dataset = Dataset(thinkers, **dsargs)
-        # if self.deep1010:
+        if self.deep1010:
+            print("Constructed {} channel maps".format(len(self._different_deep1010s)))
+            for names, deep_mapping in self._different_deep1010s:
+                print(stringify_channel_mapping(names, deep_mapping))
         #     dataset.add_transform(MappingDeep1010(dataset))
         return dataset

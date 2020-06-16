@@ -63,7 +63,8 @@ class BaseProcess(object):
             if isinstance(self.__dict__[member], (torch.nn.Module, torch.Tensor)):
                 self.__dict__[member] = self.__dict__[member].to(self.device)
 
-        self.optimizer = torch.optim.SGD(self.parameters(), weight_decay=l2_weight_decay, lr=lr, nesterov=True)
+        self.optimizer = torch.optim.SGD(self.parameters(), weight_decay=l2_weight_decay, lr=lr, nesterov=True,
+                                         momentum=0.9)
         self.scheduler = None
         self.lr = lr
         self.weight_decay = l2_weight_decay
@@ -297,9 +298,11 @@ class StandardClassification(BaseProcess):
 
         if retain_string not in metrics_to_check.keys():
             tqdm.tqdm.write("No metric {} found in recorded metrics. Not saving best.")
-        if retain_string == 'loss' and metrics_to_check[retain_string] < self.best_metric:
+        if self.best_metric is None:
             best_state_dict = found_best()
-        elif retain_string != 'loss' and metrics_to_check[retain_string] > self.best_metric:
+        elif retain_string == 'loss' and metrics_to_check[retain_string] <= self.best_metric:
+            best_state_dict = found_best()
+        elif retain_string != 'loss' and metrics_to_check[retain_string] >= self.best_metric:
             best_state_dict = found_best()
 
         return best_state_dict

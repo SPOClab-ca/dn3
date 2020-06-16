@@ -781,7 +781,7 @@ class Dataset(DN3ataset, ConcatDataset):
             if len(_val_set.intersection(_test_set)) > 0:
                 raise ValueError("Validation and test overlap with ids: {}".format(_val_set.intersection(_test_set)))
 
-            print('Training:   {}'.format(testing))
+            print('Training:   {}'.format(training))
             print('Validation: {}'.format(validating))
             print('Test:       {}'.format(testing))
 

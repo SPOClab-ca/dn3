@@ -281,6 +281,19 @@ def map_dataset_channels_deep_1010(channels: np.ndarray, exclude_stim=True):
     return map_named_channels_deep_1010(list(revised_channel_types.keys()), eog, ref, extra)
 
 
-def print_channel_mapping(original_names, mapping):
-    pass
+def stringify_channel_mapping(original_names: list, mapping: np.ndarray):
+
+    def match_old_new_idx(old_idx, new_idx_set: list):
+        new_names = [DEEP_1010_CHS_LISTING[i] for i in np.nonzero(mapping[old_idx, :])[0] if i in new_idx_set]
+        return ','.join(new_names)
+
+    for inds, label in zip([list(range(0, _NUM_EEG_CHS)), EOG_INDS, REF_INDS, EXTRA_INDS],
+                           ['EEG', 'EOG', 'REF', 'EXTRA']):
+        print("{} (original(new)): ".format(label), end='')
+        for idx, name in enumerate(original_names):
+            news = match_old_new_idx(idx, inds)
+            if len(news) > 0:
+                print('{}({})'.format(name, news), end=' ')
+        print('')
+
 
