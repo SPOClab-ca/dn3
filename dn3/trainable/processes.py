@@ -409,7 +409,7 @@ class StandardClassification(BaseProcess):
         if _clear_scheduler_after:
             self.set_scheduler(None)
 
-        if retain_best is not None:
+        if retain_best is not None and validation_dataset is not None:
             tqdm.tqdm.write("Loading best model...")
             self.classifier.load_state_dict(best_model_state_dict)
 
