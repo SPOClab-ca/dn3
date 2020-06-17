@@ -4,6 +4,8 @@ import numpy as np
 from .channels import map_dataset_channels_deep_1010, DEEP_1010_CH_TYPES, SCALE_IND
 from dn3.utils import min_max_normalize
 
+from torch.nn.functional import interpolate
+
 
 class BaseTransform(object):
     """
@@ -129,6 +131,47 @@ class TemporalPadding(BaseTransform):
 
     def new_sequence_length(self, old_sequence_length):
         return old_sequence_length + self.start_padding + self.end_padding
+
+
+class TemporalInterpolation(BaseTransform):
+
+    def __init__(self, desired_sequence_length, mode='nearest'):
+        """
+        This is in essence a DN3 wrapper for the pytorch function
+        `interpolate() <https://pytorch.org/docs/stable/nn.functional.html>`_
+
+        Currently only supports single dimensional samples (i.e. channels have not been projected into more dimensions)
+
+        Warnings
+        --------
+        Using this function to downsample data below a suitable nyquist frequency given the low-pass filtering of the
+        original data will cause dangerous aliasing artifacts that will heavily affect data quality to the point of it
+        being mostly garbage.
+
+        Parameters
+        ----------
+        desired_sequence_length: int
+                                 The desired new sequence length of incoming data.
+        mode: str
+              The technique that will be used for upsampling data, by default 'nearest' interpolation. Other options
+              are listed under pytorch's interpolate function.
+        """
+        super().__init__()
+        self._new_sequence_length = desired_sequence_length
+        self.mode = mode
+
+    def __call__(self, x):
+        # squeeze and unsqueeze because these are done before batching
+        if len(x.shape) == 2:
+            return interpolate(x.unsqueeze(0), self._new_sequence_length, mode=self.mode).squeeze(0)
+        # Supports batch dimension
+        elif len(x.shape) == 3:
+            return interpolate(x, self._new_sequence_length, mode=self.mode)
+        else:
+            raise ValueError("TemporalInterpolation only support sequence of single dim channels with optional batch")
+
+    def new_sequence_length(self, old_sequence_length):
+        return self._new_sequence_length
 
 
 class MappingDeep1010(BaseTransform):

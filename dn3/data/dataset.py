@@ -731,7 +731,7 @@ class Dataset(DN3ataset, ConcatDataset):
             return unfurl(sequence_length)
         sequence_length = sequence_length.pop()
         for xform in self._transforms:
-            sequence_length = xform.new_sfreq(sequence_length)
+            sequence_length = xform.new_sequence_length(sequence_length)
         return sequence_length
 
     def get_thinkers(self):

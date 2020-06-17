@@ -100,9 +100,6 @@ class LogRegNetwork(DN3BaseModel):
     """
     In effect, simply an implementation of linear kernel (multi)logistic regression
     """
-    def __init__(self, targets, samples, channels):
-        super().__init__(targets, samples, channels)
-
     def features_forward(self, x):
         return x
 

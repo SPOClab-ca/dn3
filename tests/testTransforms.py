@@ -5,12 +5,16 @@ import torch
 
 from dn3.utils import min_max_normalize
 from dn3.transforms.channels import DEEP_1010_CHS_LISTING, stringify_channel_mapping
-from dn3.transforms.basic import ZScore, MappingDeep1010
+from dn3.transforms.basic import ZScore, MappingDeep1010, TemporalInterpolation
 from tests.dummy_data import create_dummy_dataset, retrieve_underlying_dummy_data, EVENTS, check_epoch_against_data
 
 
 def simple_zscoring(data: torch.Tensor):
     return (data - data.mean()) / data.std()
+
+
+def _check_zscored_trial(event_id):
+    return simple_zscoring(retrieve_underlying_dummy_data(event_id))
 
 
 class TestTransforms(unittest.TestCase):
@@ -51,7 +55,23 @@ class TestTransforms(unittest.TestCase):
             i += 1
             with self.subTest(i=i):
                 ev_id = (i-1) % len(EVENTS)
-                self.assertTrue(torch.allclose(x, simple_zscoring(retrieve_underlying_dummy_data(ev_id))))
+                self.assertTrue(torch.allclose(x, _check_zscored_trial(ev_id)))
+
+    def test_TemporalInterpolation(self):
+        new_seq_len = self.dataset.sequence_length * 2
+        transform = TemporalInterpolation(new_seq_len)
+        self.dataset.add_transform(transform)
+
+        with self.subTest(i="initialization"):
+            self.assertEqual(self.dataset.sequence_length, new_seq_len)
+
+        i = 0
+        for x, y in self.dataset:
+            i += 1
+            with self.subTest(i=i):
+                ev_id = (i - 1) % len(EVENTS)
+                # nearest should mean that values are just dumplicated and we can slice to get original
+                self.assertTrue(torch.allclose(x[:, slice(0, x.shape[1], 2)], _check_zscored_trial(ev_id)))
 
     def test_MapDeep1010Channels(self):
         transform = MappingDeep1010(self.dataset)
