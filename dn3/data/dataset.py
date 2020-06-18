@@ -600,8 +600,8 @@ class Dataset(DN3ataset, ConcatDataset):
             self.__add__(thinkers[t], person_id=t, return_session_id=return_session_id)
         self._reset_dataset()
 
-        self.dataset_id = torch.tensor(dataset_id) if dataset_id is not None else None
-        self.task_id = torch.tensor(task_id) if task_id is not None else None
+        self.dataset_id = torch.tensor(dataset_id).long() if dataset_id is not None else None
+        self.task_id = torch.tensor(task_id).long() if task_id is not None else None
 
     def update_id_returns(self, session=None, person=None, task=None, dataset=None):
         """
@@ -664,7 +664,7 @@ class Dataset(DN3ataset, ConcatDataset):
         x = list(self._thinkers[self.get_thinkers()[person_id]].__getitem__(sample_idx))
 
         if self.return_person_id:
-            x.insert(1, torch.tensor(person_id))
+            x.insert(1, torch.tensor(person_id).long())
 
         if self.return_dataset_id:
             x.insert(1, self.dataset_id)

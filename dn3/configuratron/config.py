@@ -105,7 +105,7 @@ class DatasetConfig:
     """
     Parses dataset entries in DN3 config
     """
-    def __init__(self, name: str, config: dict, adopt_auxiliaries=True, ext_handlers=None, deep1010=None,
+    def __init__(self, name: str, config: dict, adopt_auxiliaries=True, ext_handlers=None, deep1010=True,
                  samples=None):
         """
         Parses dataset entries in DN3 config
@@ -276,11 +276,12 @@ class DatasetConfig:
                 self._excluded_people.append(person)
         return mapping
 
-    def _add_deep1010(self, ch_names: list, deep1010map: np.ndarray):
-        for old_names, old_map in self._different_deep1010s:
+    def _add_deep1010(self, ch_names: list, deep1010map: np.ndarray, unused):
+        for i, (old_names, old_map, unused, count) in enumerate(self._different_deep1010s):
             if np.all(deep1010map == old_map):
+                self._different_deep1010s[i] = (old_names, old_map, unused, count+1)
                 return
-        self._different_deep1010s.append((ch_names, deep1010map))
+        self._different_deep1010s.append((ch_names, deep1010map, unused, 1))
 
     def _load_raw(self, path: Path):
         if path.suffix in self._extension_handlers:
@@ -340,11 +341,14 @@ class DatasetConfig:
             raise DN3ConfigException("The recording at {} has no viable training data with the configuration options "
                                      "provided. Consider excluding this file or changing parameters.")
 
-        if self.deep1010:
+        if self.deep1010 is not None:
             # FIXME dataset not fully formed, but we can hack together something for now
             _dum = _DumbNamespace(dict(channels=recording.channels, info=dict(data_max=self.data_max,
                                                                               data_min=self.data_min)))
-            recording.add_transform(MappingDeep1010(_dum, **self.deep1010))
+            xform = MappingDeep1010(_dum, **self.deep1010)
+            recording.add_transform(xform)
+            self._add_deep1010([raw.ch_names[i] for i in picks], xform.mapping.numpy(),
+                               [raw.ch_names[i] for i in range(len(raw.ch_names)) if i not in picks])
 
         return recording
 
@@ -385,7 +389,7 @@ class DatasetConfig:
                 An instance of :any:`Dataset`, constructed according to mapping.
         """
         if mapping is None:
-            return self.auto_construct_dataset(self.auto_mapping())
+            return self.auto_construct_dataset(self.auto_mapping(), **dsargs)
 
         print("Creating dataset of {} {} recordings from {} people.".format(sum(len(p) for p in mapping),
                                                                             "Raw" if self._create_raw_recordings else
@@ -403,7 +407,12 @@ class DatasetConfig:
         dataset = Dataset(thinkers, **dsargs)
         if self.deep1010 is not None:
             print("Constructed {} channel maps".format(len(self._different_deep1010s)))
-            for names, deep_mapping in self._different_deep1010s:
+            for names, deep_mapping, unused, count in self._different_deep1010s:
+                print('=' * 20)
+                print("Used by {} recordings:".format(count))
                 print(stringify_channel_mapping(names, deep_mapping))
+                print('-'*20)
+                print("Excluded {}".format(unused))
+                print('=' * 20)
         #     dataset.add_transform(MappingDeep1010(dataset))
         return dataset

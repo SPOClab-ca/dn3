@@ -282,6 +282,8 @@ def map_dataset_channels_deep_1010(channels: np.ndarray, exclude_stim=True):
 
 
 def stringify_channel_mapping(original_names: list, mapping: np.ndarray):
+    result = ''
+    heuristically_mapped = list()
 
     def match_old_new_idx(old_idx, new_idx_set: list):
         new_names = [DEEP_1010_CHS_LISTING[i] for i in np.nonzero(mapping[old_idx, :])[0] if i in new_idx_set]
@@ -289,11 +291,17 @@ def stringify_channel_mapping(original_names: list, mapping: np.ndarray):
 
     for inds, label in zip([list(range(0, _NUM_EEG_CHS)), EOG_INDS, REF_INDS, EXTRA_INDS],
                            ['EEG', 'EOG', 'REF', 'EXTRA']):
-        print("{} (original(new)): ".format(label), end='')
+        result += "{} (original(new)): ".format(label)
         for idx, name in enumerate(original_names):
             news = match_old_new_idx(idx, inds)
             if len(news) > 0:
-                print('{}({})'.format(name, news), end=' ')
-        print('')
+                result += '{}({}) '.format(name, news)
+                if news != name.upper():
+                    heuristically_mapped.append('{}({}) '.format(name, news))
+        result += '\n'
+
+    result += 'Heuristically Assigned: ' + ' '.join(heuristically_mapped)
+
+    return result
 
 
