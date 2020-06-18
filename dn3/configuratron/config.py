@@ -70,10 +70,13 @@ class ExperimentConfig:
         usable_datasets = list(ds_entries.keys())
 
         if self.experiment is None:
-            self._make_deep1010 = True
+            self._make_deep1010 = dict()
             self._global_samples = None
         else:
-            self._make_deep1010 = self.experiment.get('deep1010', True)
+            # If not None, will be used
+            self._make_deep1010 = self.experiment.get('deep1010', dict())
+            if isinstance(self._make_deep1010, bool):
+                self._make_deep1010 = dict() if self._make_deep1010 else None
             self._global_samples = self.experiment.get('samples', None)
             usable_datasets = self.experiment.get('use_only', usable_datasets)
 
@@ -102,7 +105,7 @@ class DatasetConfig:
     """
     Parses dataset entries in DN3 config
     """
-    def __init__(self, name: str, config: dict, adopt_auxiliaries=True, ext_handlers=None, deep1010=True,
+    def __init__(self, name: str, config: dict, adopt_auxiliaries=True, ext_handlers=None, deep1010=None,
                  samples=None):
         """
         Parses dataset entries in DN3 config
@@ -118,6 +121,9 @@ class DatasetConfig:
                        callable that returns a `raw` instance given a string formatted path to a file.
         adopt_auxiliaries : bool
                             Adopt additional configuration entries as object variables.
+        deep1010 : None, dict
+                   If `None` (default) will not use the Deep1010 to map channels. If a dict, will add this transform
+                   to each recording, with keyword arguments from the dict.
 
         """
         self._original_config = dict(config).copy()
@@ -338,7 +344,7 @@ class DatasetConfig:
             # FIXME dataset not fully formed, but we can hack together something for now
             _dum = _DumbNamespace(dict(channels=recording.channels, info=dict(data_max=self.data_max,
                                                                               data_min=self.data_min)))
-            recording.add_transform(MappingDeep1010(_dum))
+            recording.add_transform(MappingDeep1010(_dum, **self.deep1010))
 
         return recording
 
@@ -395,7 +401,7 @@ class DatasetConfig:
         info = DatasetInfo(self.name, self.data_max, self.data_min, self._excluded_people, self._excluded_sessions)
         dsargs.setdefault('dataset_info', info)
         dataset = Dataset(thinkers, **dsargs)
-        if self.deep1010:
+        if self.deep1010 is not None:
             print("Constructed {} channel maps".format(len(self._different_deep1010s)))
             for names, deep_mapping in self._different_deep1010s:
                 print(stringify_channel_mapping(names, deep_mapping))
