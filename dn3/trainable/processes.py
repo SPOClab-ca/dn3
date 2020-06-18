@@ -121,6 +121,7 @@ class BaseProcess(object):
     def forward(self, *inputs):
         """
         Given a batch of inputs, return the outputs produced by the trainable module.
+
         Parameters
         ----------
         inputs :
@@ -137,8 +138,7 @@ class BaseProcess(object):
     def calculate_loss(self, intputs, outputs):
         """
         Given the inputs to and outputs from underlying modules, calculate the loss.
-        Parameters
-        ----------
+
         Returns
         -------
         Loss :
@@ -149,6 +149,7 @@ class BaseProcess(object):
     def calculate_metrics(self, inputs, outputs):
         """
         Given the inputs to and outputs from the underlying module. Return tracked metrics.
+
         Parameters
         ----------
         inputs :
