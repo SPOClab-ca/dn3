@@ -80,7 +80,7 @@ class BaseProcess(object):
     def add_metrics(self, metrics: dict):
         self.metrics.update(**metrics)
 
-    def _optimize_dataloader_kwargs(self, **loader_kwargs):
+    def _optimize_dataloader_kwargs(self, num_worker_cap=10, **loader_kwargs):
         loader_kwargs.setdefault('pin_memory', self.cuda == 'cuda')
         # Use multiple worker processes when NOT DEBUGGING
         if gettrace() is None:
@@ -89,6 +89,8 @@ class BaseProcess(object):
             m = re.search(r'(?m)^Cpus_allowed:\s*(.*)$',
                           open('/proc/self/status').read())
             nw = bin(int(m.group(1).replace(',', ''), 16)).count('1')
+            # Cap the number of workers at 10 to avoid pummeling disks too hard
+            nw = min(10, nw)
         else:
             # 0 workers means not extra processes are spun up
             nw = 2
@@ -278,7 +280,7 @@ class StandardClassification(BaseProcess):
         return super(StandardClassification, self).evaluate(dataset)
 
     def forward(self, *inputs):
-        if isinstance(self.classifier, DN3BaseModel):
+        if isinstance(self.classifier, DN3BaseModel) and self.classifier.return_features:
             prediction, _ = self.classifier(inputs[0])
         else:
             prediction = self.classifier(inputs[0])

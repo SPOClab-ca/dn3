@@ -17,11 +17,12 @@ class DN3BaseModel(nn.Module):
     :any:`DN3BaseModel` objects, are re-interpreted as a two-stage pipeline, the two stages being *feature extraction*
     and *classification*.
     """
-    def __init__(self, targets, samples, channels):
+    def __init__(self, targets, samples, channels, return_features=True):
         super().__init__()
         self.targets = targets
         self.samples = samples
         self.channels = channels
+        self.return_features = return_features
         self.make_new_classification_layer()
 
     @property
@@ -81,7 +82,10 @@ class DN3BaseModel(nn.Module):
 
     def forward(self, x):
         features = self.features_forward(x)
-        return self.classifier_forward(features), features
+        if self.return_features:
+            return self.classifier_forward(features), features
+        else:
+            return self.classifier_forward(features)
 
     def features_forward(self, x):
         raise NotImplementedError
@@ -121,12 +125,12 @@ class TIDNet(DN3BaseModel):
 
     def __init__(self, targets, samples, channels, s_growth=24, t_filters=32, do=0.4, pooling=20,
                  activation=nn.LeakyReLU, temp_layers=2, spat_layers=2, temp_span=0.05, bottleneck=3,
-                 summary=-1, weight_std=0.02):
+                 summary=-1, weight_std=0.02, return_features=True):
         self.weight_std = weight_std
         self.temp_len = math.ceil(temp_span * samples)
         summary = samples // pooling if summary == -1 else summary
         self._num_features = (t_filters + s_growth * spat_layers) * summary
-        super().__init__(targets, samples, channels)
+        super().__init__(targets, samples, channels, return_features=return_features)
 
         self.temporal = nn.Sequential(
             Expand(axis=1),
@@ -165,11 +169,12 @@ class EEGNet(DN3BaseModel):
     implementations that include this constraint (albeit, those were *also not written* by the original authors).
     """
 
-    def __init__(self, targets, samples, channels, do=0.25, pooling=8, F1=8, D=2, t_len=65, F2=16):
+    def __init__(self, targets, samples, channels, do=0.25, pooling=8, F1=8, D=2, t_len=65, F2=16,
+                 return_features=True):
         samples = samples // (pooling // 2)
         samples = samples // pooling
         self._num_features = F2 * samples
-        super().__init__(targets, samples, channels)
+        super().__init__(targets, samples, channels, return_features=return_features)
 
         self.init_conv = nn.Sequential(
             Expand(1),
