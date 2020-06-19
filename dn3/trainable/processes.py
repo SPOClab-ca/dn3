@@ -247,7 +247,7 @@ def _check_make_dataloader(dataset, **loader_kwargs):
 
 class StandardClassification(BaseProcess):
 
-    def __init__(self, classifier: torch.nn.Module, loss_fn=None, cuda=None, metrics=None, learning_rate=None,
+    def __init__(self, classifier: torch.nn.Module, loss_fn=None, cuda=None, metrics=None, learning_rate=0.01,
                  **kwargs):
         if isinstance(metrics, dict):
             metrics.setdefault('Accuracy', self._simple_accuracy)

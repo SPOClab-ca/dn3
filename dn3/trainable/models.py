@@ -41,7 +41,7 @@ class DN3BaseModel(nn.Module):
     def save(self, filename):
         torch.save(self.state_dict(), filename)
 
-    def freeze_features(self, unfreeze=False):
+    def freeze_features(self, unfreeze=False, freeze_classifier=False):
         """
         In many cases, the features learned by a model in one domain can be applied to another case.
 
@@ -52,10 +52,13 @@ class DN3BaseModel(nn.Module):
         ----------
         unfreeze : bool
                    To unfreeze weights after a previous call to this.
+        freeze_classifier: bool
+                   Commonly, the classifier layer will not be frozen (default). Setting this to `True` will freeze this
+                   layer too.
         """
         for param in self.parameters():
             param.requires_grad = unfreeze
-        if isinstance(self.classifier, nn.Module):
+        if isinstance(self.classifier, nn.Module) and not freeze_classifier:
             for param in self.classifier.parameters():
                 param.requires_grad = True
 

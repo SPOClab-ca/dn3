@@ -215,7 +215,7 @@ class MappingDeep1010(BaseTransform):
         x[SCALE_IND, :] = 0 if self.max_scale is None else scale
 
         if self.return_mask:
-            return (x, self.mapping.sum(dim=0))
+            return (x, self.mapping.sum(dim=0).bool())
         else:
             return x
 
