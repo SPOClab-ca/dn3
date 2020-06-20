@@ -141,6 +141,23 @@ class Classifier(DN3BaseModel):
     def features_forward(self, x):
         raise NotImplementedError
 
+    def load(self, filename, include_classifier=False, freeze_features=True):
+        state_dict = torch.load(filename)
+        if not include_classifier:
+            for key in [k for k in state_dict.keys() if 'classifier' in k]:
+                state_dict.pop(key)
+        self.load_state_dict(state_dict, strict=False)
+        if freeze_features:
+            self.freeze_features()
+
+    def save(self, filename, ignore_classifier=False):
+        state_dict = self.state_dict()
+        if ignore_classifier:
+            for key in [k for k in state_dict.keys() if 'classifier' in k]:
+                state_dict.pop(key)
+        print("Saving to {} ...".format(filename))
+        torch.save(state_dict, filename)
+
 
 class LogRegNetwork(Classifier):
     """
