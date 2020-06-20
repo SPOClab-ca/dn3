@@ -59,8 +59,11 @@ class BaseProcess(object):
         _before_members = set(self.__dict__.keys())
         self.build_network(**kwargs)
         new_members = set(self.__dict__.keys()).difference(_before_members)
+        self._trainables = list()
         for member in new_members:
             if isinstance(self.__dict__[member], (torch.nn.Module, torch.Tensor)):
+                if not (isinstance(self.__dict__[member], torch.Tensor) and not self.__dict__[member].requires_grad):
+                    self._trainables.append(member)
                 self.__dict__[member] = self.__dict__[member].to(self.device)
 
         self.optimizer = torch.optim.SGD(self.parameters(), weight_decay=l2_weight_decay, lr=lr, nesterov=True,
@@ -118,7 +121,8 @@ class BaseProcess(object):
         params :
                  An iterator of parameters
         """
-        raise NotImplementedError
+        for member in self._trainables:
+            yield from self.__dict__[member].parameters()
 
     def forward(self, *inputs):
         """
@@ -137,7 +141,7 @@ class BaseProcess(object):
         """
         raise NotImplementedError
 
-    def calculate_loss(self, intputs, outputs):
+    def calculate_loss(self, inputs, outputs):
         """
         Given the inputs to and outputs from underlying modules, calculate the loss.
 
@@ -146,7 +150,7 @@ class BaseProcess(object):
         Loss :
              Single loss quantity to be minimized.
         """
-        raise NotImplementedError
+        return self.loss(outputs, inputs[-1])
 
     def calculate_metrics(self, inputs, outputs):
         """
@@ -173,7 +177,12 @@ class BaseProcess(object):
         self.optimizer.zero_grad()
         loss.backward()
 
+    def train(self, mode=True):
+        for member in self._trainables:
+            self.__dict__[member].train(mode=mode)
+
     def train_step(self, *inputs):
+        self.train(True)
         outputs = self.forward(*inputs)
         loss = self.calculate_loss(inputs, outputs)
         self.backward(loss)
@@ -187,19 +196,29 @@ class BaseProcess(object):
 
         return train_metrics
 
-    def evaluate(self, dataset: DataLoader):
+    def evaluate(self, dataset, **loader_kwargs):
         """
         Calculate and return metrics for a dataset
 
         Parameters
         ----------
-        dataset
+        dataset: DN3ataset, DataLoader
+                 The dataset that will be used for evaluation, if not a DataLoader, one will be constructed
+        loader_kwargs: dict
+                       Args that will be passed to the dataloader, but `shuffle` and `drop_last` will be both be
+                       forced to `False`
 
         Returns
         -------
         metrics : OrderedDict
                 Metric scores for the entire
         """
+        self.train(False)
+        loader_kwargs.setdefault('batch_size', 1)
+        loader_kwargs['drop_last'] = False
+        loader_kwargs['shuffle'] = False
+        dataset = _check_make_dataloader(dataset, **loader_kwargs)
+
         num_points = 0
         pbar = tqdm.trange(len(dataset), desc="Iteration")
         data_iterator = iter(dataset)
@@ -236,79 +255,48 @@ class BaseProcess(object):
                 start_message += " {}: {:.2f} |".format(m, metrics[m])
         tqdm.tqdm.write(start_message)
 
+    def save_best(self):
+        """
+        Create a snapshot of what is being currently trained for re-laoding with the :py:meth:`load_best()` method.
 
-def _check_make_dataloader(dataset, **loader_kwargs):
-    # Any args that make more sense as a convenience function to be set
-    loader_kwargs.setdefault('shuffle', True)
-    loader_kwargs.setdefault('drop_last', True)
+        Returns
+        -------
+        best : Any
+               Whatever format is needed for :py:meth:`load_best()`, will be the argument provided to it.
+        """
+        return [self.__dict__[m].state_dict() for m in self._trainables]
 
-    if isinstance(dataset, DataLoader):
-        return dataset
-    return DataLoader(dataset, **loader_kwargs)
+    def load_best(self, best):
+        """
+        Load the parameters as saved by :py:meth:`save_best()`.
 
+        Parameters
+        ----------
+        best: Any
+        """
+        for m, state_dict in zip(self._trainables, best):
+            self.__dict__[m].load_state_dict(state_dict)
 
-class StandardClassification(BaseProcess):
-
-    def __init__(self, classifier: torch.nn.Module, loss_fn=None, cuda=None, metrics=None, learning_rate=0.01,
-                 **kwargs):
-        if isinstance(metrics, dict):
-            metrics.setdefault('Accuracy', self._simple_accuracy)
-        else:
-            metrics = dict(Accuracy=self._simple_accuracy)
-        super(StandardClassification, self).__init__(cuda=cuda, lr=learning_rate, classifier=classifier,
-                                                     metrics=metrics, **kwargs)
-        self.loss = torch.nn.CrossEntropyLoss().to(self.device) if loss_fn is None else loss_fn.to(self.device)
-        self.best_metric = None
-
-    @staticmethod
-    def _simple_accuracy(inputs, outputs: torch.Tensor):
-        return (inputs[-1] == outputs.argmax(dim=-1)).float().mean().item()
-
-    def parameters(self):
-        return self.classifier.parameters()
-
-    def train_step(self, *inputs):
-        self.classifier.train(True)
-        return super(StandardClassification, self).train_step(*inputs)
-
-    def evaluate(self, dataset, **loader_kwargs):
-        self.classifier.train(False)
-        loader_kwargs.setdefault('batch_size', 1)
-        loader_kwargs['drop_last'] = False
-        loader_kwargs['shuffle'] = False
-        dataset = _check_make_dataloader(dataset, **loader_kwargs)
-        return super(StandardClassification, self).evaluate(dataset)
-
-    def forward(self, *inputs):
-        if isinstance(self.classifier, DN3BaseModel) and self.classifier.return_features:
-            prediction, _ = self.classifier(inputs[0])
-        else:
-            prediction = self.classifier(inputs[0])
-        return prediction
-
-    def calculate_loss(self, inputs, outputs):
-        return self.loss(outputs, inputs[-1])
-
-    def _retain_best(self, old_state_dict: dict, metrics_to_check: dict, retain_string: str):
+    def _retain_best(self, old_checkpoint, metrics_to_check: dict, retain_string: str):
         if retain_string is None:
-            return old_state_dict
-        best_state_dict = old_state_dict
+            return old_checkpoint
+        best_checkpoint = old_checkpoint
 
         def found_best():
-            tqdm.tqdm.write("Best {}. Retaining model params...".format(retain_string))
+            tqdm.tqdm.write("Best {}. Retaining checkpoint...".format(retain_string))
             self.best_metric = metrics_to_check[retain_string]
-            return self.classifier.state_dict()
+            return self.save_best()
 
         if retain_string not in metrics_to_check.keys():
             tqdm.tqdm.write("No metric {} found in recorded metrics. Not saving best.")
         if self.best_metric is None:
-            best_state_dict = found_best()
+            best_checkpoint = found_best()
         elif retain_string == 'loss' and metrics_to_check[retain_string] <= self.best_metric:
-            best_state_dict = found_best()
+            best_checkpoint = found_best()
         elif retain_string != 'loss' and metrics_to_check[retain_string] >= self.best_metric:
-            best_state_dict = found_best()
+            best_checkpoint = found_best()
 
-        return best_state_dict
+        return best_checkpoint
 
     def fit(self, training_dataset, epochs=1, validation_dataset=None, step_callback=None,
             epoch_callback=None, batch_size=8, warmup_frac=0.2, retain_best='loss', **loader_kwargs):
@@ -370,7 +358,7 @@ class StandardClassification(BaseProcess):
         validation_log = list()
         train_log = list()
         self.best_metric = None
-        best_model_state_dict = self.classifier.state_dict()
+        best_model = self.save_best()
 
         metrics = OrderedDict()
 
@@ -402,7 +390,7 @@ class StandardClassification(BaseProcess):
             if validation_dataset is not None:
                 val_metrics = self.evaluate(validation_dataset, **loader_kwargs)
                 self.standard_logging(val_metrics, "End of Epoch {}".format(epoch))
-                best_model_state_dict = self._retain_best(best_model_state_dict, val_metrics, retain_best)
+                best_model = self._retain_best(best_model, val_metrics, retain_best)
 
                 val_metrics['epoch'] = epoch
                 validation_log.append(val_metrics)
@@ -414,6 +402,42 @@ class StandardClassification(BaseProcess):
 
         if retain_best is not None and validation_dataset is not None:
             tqdm.tqdm.write("Loading best model...")
-            self.classifier.load_state_dict(best_model_state_dict)
+            self.load_best(best_model)
 
         return DataFrame(train_log), DataFrame(validation_log)
+
+
+def _check_make_dataloader(dataset, **loader_kwargs):
+    # Any args that make more sense as a convenience function to be set
+    loader_kwargs.setdefault('shuffle', True)
+    loader_kwargs.setdefault('drop_last', True)
+
+    if isinstance(dataset, DataLoader):
+        return dataset
+    return DataLoader(dataset, **loader_kwargs)
+
+
+class StandardClassification(BaseProcess):
+
+    def __init__(self, classifier: torch.nn.Module, loss_fn=None, cuda=None, metrics=None, learning_rate=0.01,
+                 **kwargs):
+        if isinstance(metrics, dict):
+            metrics.setdefault('Accuracy', self._simple_accuracy)
+        else:
+            metrics = dict(Accuracy=self._simple_accuracy)
+        super(StandardClassification, self).__init__(cuda=cuda, lr=learning_rate, classifier=classifier,
+                                                     metrics=metrics, **kwargs)
+        self.loss = torch.nn.CrossEntropyLoss().to(self.device) if loss_fn is None else loss_fn.to(self.device)
+        self.best_metric = None
+
+    @staticmethod
+    def _simple_accuracy(inputs, outputs: torch.Tensor):
+        return (inputs[-1] == outputs.argmax(dim=-1)).float().mean().item()
+
+    def forward(self, *inputs):
+        if isinstance(self.classifier, DN3BaseModel) and self.classifier.return_features:
+            prediction, _ = self.classifier(inputs[0])
+        else:
+            prediction = self.classifier(inputs[0])
+        return prediction
+

@@ -100,7 +100,7 @@ class DN3BaseModel(nn.Module):
                                                                                         dataset.sequence_length,
                                                                                         dataset.sfreq))
         assert isinstance(dataset, DN3ataset)
-        return cls(targets, dataset.sequence_length, len(dataset.channels), **modelargs)
+        return cls(targets=targets, samples=dataset.sequence_length, channels=len(dataset.channels), **modelargs)
 
 
 class LogRegNetwork(DN3BaseModel):
@@ -125,7 +125,7 @@ class TIDNet(DN3BaseModel):
 
     def __init__(self, targets, samples, channels, s_growth=24, t_filters=32, do=0.4, pooling=20,
                  activation=nn.LeakyReLU, temp_layers=2, spat_layers=2, temp_span=0.05, bottleneck=3,
-                 summary=-1, weight_std=0.02, return_features=True):
+                 summary=-1, weight_std=0.02, return_features=False):
         self.weight_std = weight_std
         self.temp_len = math.ceil(temp_span * samples)
         summary = samples // pooling if summary == -1 else summary
@@ -170,7 +170,7 @@ class EEGNet(DN3BaseModel):
     """
 
     def __init__(self, targets, samples, channels, do=0.25, pooling=8, F1=8, D=2, t_len=65, F2=16,
-                 return_features=True):
+                 return_features=False):
         samples = samples // (pooling // 2)
         samples = samples // pooling
         self._num_features = F2 * samples
