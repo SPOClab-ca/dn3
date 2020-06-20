@@ -1,7 +1,7 @@
 import re
 from sys import gettrace
 
-from dn3.trainable.models import DN3BaseModel
+from dn3.trainable.models import DN3BaseModel, Classifier
 
 # Swap these two for Ipython/Jupyter
 import tqdm
@@ -435,7 +435,7 @@ class StandardClassification(BaseProcess):
         return (inputs[-1] == outputs.argmax(dim=-1)).float().mean().item()
 
     def forward(self, *inputs):
-        if isinstance(self.classifier, DN3BaseModel) and self.classifier.return_features:
+        if isinstance(self.classifier, Classifier) and self.classifier.return_features:
             prediction, _ = self.classifier(inputs[0])
         else:
             prediction = self.classifier(inputs[0])

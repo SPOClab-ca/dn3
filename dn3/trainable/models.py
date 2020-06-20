@@ -17,16 +17,13 @@ class DN3BaseModel(nn.Module):
     :any:`DN3BaseModel` objects, are re-interpreted as a two-stage pipeline, the two stages being *feature extraction*
     and *classification*.
     """
-    def __init__(self, targets, samples, channels, return_features=True):
+    def __init__(self, samples, channels, return_features=True):
         super().__init__()
-        self.targets = targets
         self.samples = samples
         self.channels = channels
         self.return_features = return_features
-        self.make_new_classification_layer()
 
-    @property
-    def num_features_for_classification(self):
+    def forward(self, x):
         raise NotImplementedError
 
     def clone(self):
@@ -41,6 +38,77 @@ class DN3BaseModel(nn.Module):
 
     def save(self, filename):
         torch.save(self.state_dict(), filename)
+
+    def freeze_features(self, unfreeze=False):
+        for param in self.parameters():
+            param.requires_grad = unfreeze
+
+    @classmethod
+    def from_dataset(cls, dataset: DN3ataset, **modelargs):
+        print("Creating {} using: {} channels with trials of {} samples at {}Hz".format(cls.__name__,
+                                                                                        len(dataset.channels),
+                                                                                        dataset.sequence_length,
+                                                                                        dataset.sfreq))
+        assert isinstance(dataset, DN3ataset)
+        return cls(samples=dataset.sequence_length, channels=len(dataset.channels), **modelargs)
+
+
+class Classifier(DN3BaseModel):
+    """
+    A generic Classifer container. This container breaks operations up into feature extraction and feature
+    classification to enable convenience in transfer learning and more.
+    """
+
+    @classmethod
+    def from_dataset(cls, dataset: DN3ataset, **modelargs):
+        """
+        Create a classifier from a dataset.
+
+        Parameters
+        ----------
+        dataset
+        modelargs: dict
+                   Options to construct the dataset, if dataset does not have listed targets, targets must be specified
+                   in the keyword arguments or will fall back to 2.
+
+        Returns
+        -------
+        model: Classifier
+               A new `Classifier` ready to classifiy data from `dataset`
+        """
+        modelargs.setdefault('targets', 2)
+        targets = dataset.targets if hasattr(dataset, "targets") else modelargs['targets']
+        modelargs.setdefault('targets', targets)
+        super(Classifier, cls).from_dataset(dataset, **modelargs)
+
+    def __init__(self, targets, samples, channels):
+        super(Classifier, self).__init__(samples, channels)
+        self.targets = targets
+        self.make_new_classification_layer()
+
+    def forward(self, x):
+        features = self.features_forward(x)
+        if self.return_features:
+            return self.classifier_forward(features), features
+        else:
+            return self.classifier_forward(features)
+
+    def make_new_classification_layer(self):
+        """
+        This allows for a distinction between the classification layer(s) and the rest of the network. Using a basic
+        formulation of a network being composed of two parts feature_extractor & classifier.
+
+        This method is for implementing the classification side, so that methods like :py:meth:`freeze_features` works
+        as intended.
+
+        Anything besides a layer that just flattens anything incoming to a vector and Linearly weights this to the
+        target should override this method, and there should be a variable called `self.classifier`
+
+        """
+        classifier = nn.Linear(self.num_features_for_classification, self.targets)
+        nn.init.xavier_normal_(classifier.weight)
+        classifier.bias.data.zero_()
+        self.classifier = nn.Sequential(Flatten(), classifier)
 
     def freeze_features(self, unfreeze=False, freeze_classifier=False):
         """
@@ -57,53 +125,24 @@ class DN3BaseModel(nn.Module):
                    Commonly, the classifier layer will not be frozen (default). Setting this to `True` will freeze this
                    layer too.
         """
-        for param in self.parameters():
-            param.requires_grad = unfreeze
+        super(Classifier, self).freeze_features(unfreeze=unfreeze)
+
         if isinstance(self.classifier, nn.Module) and not freeze_classifier:
             for param in self.classifier.parameters():
                 param.requires_grad = True
 
-    def make_new_classification_layer(self):
-        """
-        This allows for a distinction between the classification layer(s) and the rest of the network. Using a basic
-        formulation of a network being composed of two parts feature_extractor & classifier.
-
-        This method is for implementing the classification side, so that methods like :py:meth:`freeze_features` works
-        as intended.
-
-        Anything besides a layer that just flattens anything incoming to a vector and Linearly weights this to the 
-        target should override this method, and there should be a variable called `self.classifier`
-
-        """
-        classifier = nn.Linear(self.num_features_for_classification, self.targets)
-        nn.init.xavier_normal_(classifier.weight)
-        classifier.bias.data.zero_()
-        self.classifier = nn.Sequential(Flatten(), classifier)
-
-    def forward(self, x):
-        features = self.features_forward(x)
-        if self.return_features:
-            return self.classifier_forward(features), features
-        else:
-            return self.classifier_forward(features)
-
-    def features_forward(self, x):
+    @property
+    def num_features_for_classification(self):
         raise NotImplementedError
 
     def classifier_forward(self, features):
         return self.classifier(features)
 
-    @classmethod
-    def from_dataset(cls, dataset: DN3ataset, targets, **modelargs):
-        print("Creating {} using: {} channels with trials of {} samples at {}Hz".format(cls.__name__,
-                                                                                        len(dataset.channels),
-                                                                                        dataset.sequence_length,
-                                                                                        dataset.sfreq))
-        assert isinstance(dataset, DN3ataset)
-        return cls(targets=targets, samples=dataset.sequence_length, channels=len(dataset.channels), **modelargs)
+    def features_forward(self, x):
+        raise NotImplementedError
 
 
-class LogRegNetwork(DN3BaseModel):
+class LogRegNetwork(Classifier):
     """
     In effect, simply an implementation of linear kernel (multi)logistic regression
     """
@@ -115,7 +154,7 @@ class LogRegNetwork(DN3BaseModel):
         return self.samples * self.channels
 
 
-class TIDNet(DN3BaseModel):
+class TIDNet(Classifier):
     """
     The Thinker Invariant Densenet from Kostas & Rudzicz 2020 (under review).
 
@@ -155,7 +194,7 @@ class TIDNet(DN3BaseModel):
         return self.extract_features(x)
 
 
-class EEGNet(DN3BaseModel):
+class EEGNet(Classifier):
     """
     This is the DN3 re-implementation of Lawhern et. al.'s EEGNet from:
     https://iopscience.iop.org/article/10.1088/1741-2552/aace8c
