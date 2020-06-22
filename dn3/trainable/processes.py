@@ -59,6 +59,7 @@ class BaseProcess(object):
         _before_members = set(self.__dict__.keys())
         self.build_network(**kwargs)
         new_members = set(self.__dict__.keys()).difference(_before_members)
+        self._training = False
         self._trainables = list()
         for member in new_members:
             if isinstance(self.__dict__[member], (torch.nn.Module, torch.Tensor)):
@@ -178,6 +179,7 @@ class BaseProcess(object):
         loss.backward()
 
     def train(self, mode=True):
+        self._training = mode
         for member in self._trainables:
             self.__dict__[member].train(mode=mode)
 
