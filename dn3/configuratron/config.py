@@ -71,20 +71,20 @@ class ExperimentConfig:
 
         if self.experiment is None:
             self._make_deep1010 = dict()
-            self._global_samples = None
+            self.global_samples = None
         else:
             # If not None, will be used
             self._make_deep1010 = self.experiment.get('deep1010', dict())
             if isinstance(self._make_deep1010, bool):
                 self._make_deep1010 = dict() if self._make_deep1010 else None
-            self._global_samples = self.experiment.get('samples', None)
+            self.global_samples = self.experiment.get('samples', None)
             usable_datasets = self.experiment.get('use_only', usable_datasets)
 
         self.datasets = dict()
         for i, name in enumerate(usable_datasets):
             if name in ds_entries.keys():
                 self.datasets[name] = DatasetConfig(name, ds_entries[name], deep1010=self._make_deep1010,
-                                                    samples=self._global_samples)
+                                                    samples=self.global_samples)
             else:
                 raise DN3ConfigException("Could not find {} in datasets".format(name))
 
