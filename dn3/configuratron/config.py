@@ -72,6 +72,7 @@ class ExperimentConfig:
         if self.experiment is None:
             self._make_deep1010 = dict()
             self.global_samples = None
+            preload = False
         else:
             # If not None, will be used
             self._make_deep1010 = self.experiment.get('deep1010', dict())
@@ -79,12 +80,13 @@ class ExperimentConfig:
                 self._make_deep1010 = dict() if self._make_deep1010 else None
             self.global_samples = self.experiment.get('samples', None)
             usable_datasets = self.experiment.get('use_only', usable_datasets)
+            preload = self.experiment.get('preload', False)
 
         self.datasets = dict()
         for i, name in enumerate(usable_datasets):
             if name in ds_entries.keys():
                 self.datasets[name] = DatasetConfig(name, ds_entries[name], deep1010=self._make_deep1010,
-                                                    samples=self.global_samples)
+                                                    samples=self.global_samples, preload=preload)
             else:
                 raise DN3ConfigException("Could not find {} in datasets".format(name))
 
@@ -106,7 +108,7 @@ class DatasetConfig:
     Parses dataset entries in DN3 config
     """
     def __init__(self, name: str, config: dict, adopt_auxiliaries=True, ext_handlers=None, deep1010=True,
-                 samples=None):
+                 samples=None, preload=False):
         """
         Parses dataset entries in DN3 config
         Parameters
@@ -124,6 +126,9 @@ class DatasetConfig:
         deep1010 : None, dict
                    If `None` (default) will not use the Deep1010 to map channels. If a dict, will add this transform
                    to each recording, with keyword arguments from the dict.
+        preload: bool
+                 Whether to preload recordings when creating datasets from the configuration. Can also be specified with
+                 `preload` configuratron entry.
 
         """
         self._original_config = dict(config).copy()
@@ -164,6 +169,7 @@ class DatasetConfig:
         self.data_max = get_pop('data_max')
         self.data_min = get_pop('data_min')
         self.name = get_pop('name', name)
+        self.preload = get_pop('preload', preload)
         self.stride = get_pop('stride', 1)
         self.extensions = get_pop('file_extensions', list(_SUPPORTED_EXTENSIONS.keys()))
         self.exclude_people = get_pop('exclude_people', list())
@@ -285,12 +291,12 @@ class DatasetConfig:
 
     def _load_raw(self, path: Path):
         if path.suffix in self._extension_handlers:
-            return self._extension_handlers[path.suffix](str(path))
+            return self._extension_handlers[path.suffix](str(path), preload=self.preload)
         print("Handler for file {} with extension {} not found.".format(str(path), path.suffix))
         for ext in path.suffixes:
             if ext in self._extension_handlers:
                 print("Trying {} instead...".format(ext))
-                return self._extension_handlers[ext]
+                return self._extension_handlers[ext](str(path), preload=self.preload)
 
         raise DN3ConfigException("No supported/provided loader found for {}".format(str(path)))
 

@@ -2,21 +2,21 @@ import torch
 from torch import nn
 
 
-# Some general purpose simple layers
-class Expand(nn.Module):
+class _SingleAxisOperation(nn.Module):
     def __init__(self, axis=-1):
         super().__init__()
         self.axis = axis
 
     def forward(self, x):
+        raise NotImplementedError
+
+# Some general purpose simple layers
+class Expand(_SingleAxisOperation):
+    def forward(self, x):
         return x.unsqueeze(self.axis)
 
 
-class Squeeze(nn.Module):
-    def __init__(self, axis=-1):
-        super().__init__()
-        self.axis = axis
-
+class Squeeze(_SingleAxisOperation):
     def forward(self, x):
         return x.squeeze(self.axis)
 
@@ -28,6 +28,28 @@ class Permute(nn.Module):
 
     def forward(self, x):
         return x.permute(self.axes)
+
+
+class Concatenate(_SingleAxisOperation):
+    def forward(self, *x):
+        return torch.cat(x, dim=self.axis)
+
+
+class IndexSelect(nn.Module):
+    def __init__(self, indices):
+        super().__init__()
+        assert isinstance(indices, (int, list, tuple))
+        if isinstance(indices, int):
+            indices = [indices]
+        self.indices = list()
+        for i in indices:
+            assert isinstance(i, int)
+            self.indices.append(i)
+
+    def forward(self, *x):
+        if len(self.indices) == 1:
+            return x[self.indices[0]]
+        return [x[i] for i in self.indices]
 
 
 class Flatten(nn.Module):

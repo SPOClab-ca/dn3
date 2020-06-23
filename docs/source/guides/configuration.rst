@@ -138,6 +138,10 @@ deep1010 *(bool)*
 samples *(int)*
   Providing samples
 
+preload *(bool)*
+  Whether to preload recordings for all datasets. *This is overridden by individual `preload` options
+  for dataset configurations.
+
 Complete listing of dataset configuration fields
 ================================================
 
@@ -224,6 +228,9 @@ decimate *(bool)*
 name *(string)*
   A more human-readable name for the dataset. This should be used to describe the dataset itself, not one of
   (potentially) many different configurations of said dataset (which might all share this parameter).
+
+preload *(bool)*
+  Whether to preload the recordings from this dataset. This overrides the experiment level `preload1 option
 
 extensions *(list)*
   The file extensions to seek out when searching for sessions in the dataset. These should include the '.', as in '.edf'

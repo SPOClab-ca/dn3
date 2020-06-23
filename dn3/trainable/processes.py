@@ -371,9 +371,9 @@ class BaseProcess(object):
                 for m in new_metrics:
                     metrics[m] = (metrics[m] * (iterations - 1) + new_metrics[m]) / iterations
 
-        epoch_bar = tqdm.trange(1, epochs+1, desc="Epoch")
+        epoch_bar = tqdm.trange(1, epochs+1, desc="Epoch", unit='epoch')
         for epoch in epoch_bar:
-            pbar = tqdm.trange(1, len(training_dataset)+1, desc="Iteration")
+            pbar = tqdm.trange(1, len(training_dataset)+1, desc="Iteration", unit='batches')
             data_iterator = iter(training_dataset)
             for iteration in pbar:
                 inputs = self._get_batch(data_iterator)

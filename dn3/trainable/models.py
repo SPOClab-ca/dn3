@@ -81,8 +81,8 @@ class Classifier(DN3BaseModel):
         modelargs.setdefault('targets', targets)
         super(Classifier, cls).from_dataset(dataset, **modelargs)
 
-    def __init__(self, targets, samples, channels):
-        super(Classifier, self).__init__(samples, channels)
+    def __init__(self, targets, samples, channels, return_features=True):
+        super(Classifier, self).__init__(samples, channels, return_features=return_features)
         self.targets = targets
         self.make_new_classification_layer()
 
@@ -231,6 +231,11 @@ class EEGNet(Classifier):
         samples = samples // pooling
         self._num_features = F2 * samples
         super().__init__(targets, samples, channels, return_features=return_features)
+
+        if t_len >= samples:
+            print("Warning: EEGNet `t_len` too long for sample length, reverting to 0.25 sample length")
+            t_len = samples // 4
+            t_len = t_len if t_len % 2 else t_len+1
 
         self.init_conv = nn.Sequential(
             Expand(1),
