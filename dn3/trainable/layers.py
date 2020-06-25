@@ -47,6 +47,8 @@ class IndexSelect(nn.Module):
             self.indices.append(i)
 
     def forward(self, *x):
+        if len(x) == 1 and isinstance(x[0], tuple):
+            x = x[0]
         if len(self.indices) == 1:
             return x[self.indices[0]]
         return [x[i] for i in self.indices]

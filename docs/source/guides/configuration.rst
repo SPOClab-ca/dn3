@@ -203,6 +203,9 @@ events *(list, map/dict)*
   If the reasoning for the above is not clear, not to worry. Just know you can't assume that annotated event 1 is label
   1. Instead use :meth:`EpochTorchRecording.get_mapping` to resolve labels to the original annotations or event codes.
 
+targets *(int)*
+  The number of targets to classify if there are events. This is inferred otherwise.
+
 picks *(list)*
   This option can take two forms:
 

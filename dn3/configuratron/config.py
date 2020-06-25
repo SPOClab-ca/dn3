@@ -176,6 +176,8 @@ class DatasetConfig:
         self.exclude_sessions = get_pop('exclude_sessions', list())
         self.deep1010 = deep1010
         self._different_deep1010s = list()
+        self._targets = get_pop('targets', None)
+        self._unique_events = set()
 
         self._samples = get_pop('samples', samples)
 
@@ -341,6 +343,7 @@ class DatasetConfig:
                                           decim=self.decimate, filter_bp=self.bandpass, drop_bad=self.drop_bad,
                                           use_annotations=use_annotations)
 
+            self._unique_events = self._unique_events.union(set(np.unique(epochs.events[:, -1])))
             recording = EpochTorchRecording(epochs, ch_ind_picks=picks, event_mapping=self.events)
 
         if len(recording) == 0:
@@ -397,9 +400,11 @@ class DatasetConfig:
         if mapping is None:
             return self.auto_construct_dataset(self.auto_mapping(), **dsargs)
 
-        print("Creating dataset of {} {} recordings from {} people.".format(sum(len(p) for p in mapping),
-                                                                            "Raw" if self._create_raw_recordings else
-                                                                            "Epoched", len(mapping)))
+        file_types = "Raw" if self._create_raw_recordings else "Epoched"
+        if self.preload:
+            file_types = "Preloaded " + file_types
+        print("Creating dataset of {} {} recordings from {} people.".format(sum(len(p) for p in mapping), file_types,
+                                                                            len(mapping)))
         description = "Loading {}".format(self.name)
         thinkers = dict()
         for t in tqdm.tqdm(mapping, desc=description, unit='person'):
@@ -408,7 +413,8 @@ class DatasetConfig:
             except DN3ConfigException:
                 tqdm.tqdm.write("None of the sessions for {} were usable. Skipping...".format(t))
 
-        info = DatasetInfo(self.name, self.data_max, self.data_min, self._excluded_people, self._excluded_sessions)
+        info = DatasetInfo(self.name, self.data_max, self.data_min, self._excluded_people, self._excluded_sessions,
+                           targets=self._targets if self._targets is not None else len(self._unique_events))
         dsargs.setdefault('dataset_info', info)
         dataset = Dataset(thinkers, **dsargs)
         if self.deep1010 is not None:

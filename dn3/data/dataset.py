@@ -524,9 +524,11 @@ class DatasetInfo(object):
     not necessary to be constructed manually, these are created by the configuratron to automatically create transforms
     and/or other processes downstream.
     """
-    def __init__(self, dataset_name, data_max=None, data_min=None, excluded_people=None, excluded_sessions=None):
+    def __init__(self, dataset_name, data_max=None, data_min=None, excluded_people=None, excluded_sessions=None,
+                 targets=None):
         self.__dict__.update(dict(dataset_name=dataset_name, data_max=data_max, data_min=data_min,
-                                  excluded_people=excluded_people, excluded_sessions=excluded_sessions))
+                                  excluded_people=excluded_people, excluded_sessions=excluded_sessions,
+                                  targets=targets))
 
 
 class Dataset(DN3ataset, ConcatDataset):

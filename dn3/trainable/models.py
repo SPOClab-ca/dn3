@@ -76,10 +76,9 @@ class Classifier(DN3BaseModel):
         model: Classifier
                A new `Classifier` ready to classifiy data from `dataset`
         """
-        modelargs.setdefault('targets', 2)
-        targets = dataset.targets if hasattr(dataset, "targets") else modelargs['targets']
+        targets = dataset.info.targets if dataset.info is not None and isinstance(dataset.info.targets, int) else 2
         modelargs.setdefault('targets', targets)
-        super(Classifier, cls).from_dataset(dataset, **modelargs)
+        return super(Classifier, cls).from_dataset(dataset, **modelargs)
 
     def __init__(self, targets, samples, channels, return_features=True):
         super(Classifier, self).__init__(samples, channels, return_features=return_features)
@@ -181,8 +180,7 @@ class TIDNet(Classifier):
 
     def __init__(self, targets, samples, channels, s_growth=24, t_filters=32, do=0.4, pooling=20,
                  activation=nn.LeakyReLU, temp_layers=2, spat_layers=2, temp_span=0.05, bottleneck=3,
-                 summary=-1, weight_std=0.02, return_features=False):
-        self.weight_std = weight_std
+                 summary=-1, return_features=False):
         self.temp_len = math.ceil(temp_span * samples)
         summary = samples // pooling if summary == -1 else summary
         self._num_features = (t_filters + s_growth * spat_layers) * summary
