@@ -493,10 +493,12 @@ class StandardClassification(BaseProcess):
         validation_log : Dataframe
                          Validation metrics after each epoch of training as a pandas dataframe
         """
-        super(StandardClassification, self).fit(training_dataset, epochs=epochs, step_callback=step_callback,
-                                                epoch_callback=epoch_callback, batch_size=batch_size,
-                                                warmup_frac=warmup_frac, retain_best=retain_best,
-                                                **loader_kwargs)
+        return super(StandardClassification, self).fit(training_dataset, epochs=epochs, step_callback=step_callback,
+                                                       epoch_callback=epoch_callback, batch_size=batch_size,
+                                                       warmup_frac=warmup_frac, retain_best=retain_best,
+                                                       validation_dataset=validation_dataset,
+                                                       balance_method=balance_method,
+                                                       **loader_kwargs)
 
     @staticmethod
     def _check_make_dataloader(dataset, training=False, **loader_kwargs):
@@ -504,7 +506,6 @@ class StandardClassification(BaseProcess):
             return dataset
 
         # Only shuffle and drop last when training
-        loader_kwargs.setdefault('shuffle', training)
         loader_kwargs.setdefault('drop_last', training)
 
         if training and loader_kwargs.get('sampler', None) is None and loader_kwargs.get('balance_method', None) \
@@ -519,6 +520,9 @@ class StandardClassification(BaseProcess):
                 sampler = balanced_undersampling(dataset) if method.lower() == 'undersample' \
                     else balanced_oversampling(dataset)
                 return DataLoader(dataset, sampler=sampler, **loader_kwargs)
+
+        # Shuffle if not already specifying weighted sampler
+        loader_kwargs.setdefault('shuffle', training)
 
         return DataLoader(dataset, **loader_kwargs)
 

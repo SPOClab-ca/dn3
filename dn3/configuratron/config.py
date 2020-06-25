@@ -180,6 +180,8 @@ class DatasetConfig:
         self.exclude_people = get_pop('exclude_people', list())
         self.exclude_sessions = get_pop('exclude_sessions', list())
         self.deep1010 = deep1010
+        if self.deep1010 and (self.data_min is None or self.data_min is None):
+            print("Can't add scale index with dataset that is missing info.")
         self._different_deep1010s = list()
         self._targets = get_pop('targets', None)
         self._unique_events = set()

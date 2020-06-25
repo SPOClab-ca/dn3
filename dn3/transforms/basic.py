@@ -201,7 +201,8 @@ class MappingDeep1010(BaseTransform):
         self.max_scale = None
         if add_scale_ind:
             if dataset.info is None or dataset.info.data_max is None or dataset.info.data_min is None:
-                print("Can't add scale index with dataset that is missing info.")
+                # print("Can't add scale index with dataset that is missing info.")
+                pass
             else:
                 self.max_scale = dataset.info.data_max - dataset.info.data_min
         self.return_mask = return_mask
