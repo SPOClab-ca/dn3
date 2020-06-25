@@ -305,6 +305,10 @@ class EpochTorchRecording(_Recording):
         """
         return self.event_labels_to_epoch_codes
 
+    def get_targets(self):
+        return np.apply_along_axis(lambda x: self.epoch_codes_to_class_labels[x[0]], 1,
+                                   self.epochs.events[:, -1, np.newaxis]).squeeze()
+
 
 class Thinker(DN3ataset, ConcatDataset):
     """
@@ -516,6 +520,15 @@ class Thinker(DN3ataset, ConcatDataset):
 
     def add_transform(self, transform):
         self._transforms.append(transform)
+
+    def get_targets(self):
+        targets = list()
+        for sess in self.sessions:
+            if hasattr(self.sessions[sess], 'get_targets'):
+                targets.append(self.sessions[sess].get_targets())
+        if len(targets) == 0:
+            return None
+        return np.concatenate(targets)
 
 
 class DatasetInfo(object):
@@ -900,5 +913,14 @@ class Dataset(DN3ataset, ConcatDataset):
 
     def clear_transforms(self):
         self._transforms = list()
+
+    def get_targets(self):
+        targets = list()
+        for tid in self._thinkers:
+            if hasattr(self._thinkers[tid], 'get_targets'):
+                targets.append(self._thinkers[tid].get_targets())
+        if len(targets) == 0:
+            return None
+        return np.concatenate(targets)
 
 # TODO Convenience functions or classes for leave one and leave multiple datasets out.

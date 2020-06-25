@@ -8,9 +8,10 @@ import tqdm
 # import tqdm.notebook as tqdm
 
 import torch
+import numpy as np
 from pandas import DataFrame
 from collections import OrderedDict
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, WeightedRandomSampler
 
 
 class BaseProcess(object):
@@ -217,9 +218,7 @@ class BaseProcess(object):
         """
         self.train(False)
         loader_kwargs.setdefault('batch_size', 1)
-        loader_kwargs['drop_last'] = False
-        loader_kwargs['shuffle'] = False
-        dataset = _check_make_dataloader(dataset, **loader_kwargs)
+        dataset = self._check_make_dataloader(dataset, training=False, **loader_kwargs)
 
         num_points = 0
         pbar = tqdm.trange(len(dataset), desc="Iteration")
@@ -300,6 +299,18 @@ class BaseProcess(object):
 
         return best_checkpoint
 
+    @staticmethod
+    def _check_make_dataloader(dataset, training=False, **loader_kwargs):
+        """Any args that make more sense as a convenience function to be set"""
+        if isinstance(dataset, DataLoader):
+            return dataset
+
+        # Only shuffle and drop last when training
+        loader_kwargs.setdefault('shuffle', training)
+        loader_kwargs.setdefault('drop_last', training)
+
+        return DataLoader(dataset, **loader_kwargs)
+
     def fit(self, training_dataset, epochs=1, validation_dataset=None, step_callback=None,
             epoch_callback=None, batch_size=8, warmup_frac=0.2, retain_best='loss', **loader_kwargs):
         """
@@ -346,7 +357,7 @@ class BaseProcess(object):
         """
         loader_kwargs.setdefault('batch_size', batch_size)
         loader_kwargs = self._optimize_dataloader_kwargs(**loader_kwargs)
-        training_dataset = _check_make_dataloader(training_dataset, **loader_kwargs)
+        training_dataset = self._check_make_dataloader(training_dataset, training=True, **loader_kwargs)
         # validation_dataset = _check_make_dataloader(validation_dataset, **loader_kwargs)
 
         _clear_scheduler_after = self.scheduler is None
@@ -409,16 +420,6 @@ class BaseProcess(object):
         return DataFrame(train_log), DataFrame(validation_log)
 
 
-def _check_make_dataloader(dataset, **loader_kwargs):
-    # Any args that make more sense as a convenience function to be set
-    loader_kwargs.setdefault('shuffle', True)
-    loader_kwargs.setdefault('drop_last', True)
-
-    if isinstance(dataset, DataLoader):
-        return dataset
-    return DataLoader(dataset, **loader_kwargs)
-
-
 class StandardClassification(BaseProcess):
 
     def __init__(self, classifier: torch.nn.Module, loss_fn=None, cuda=None, metrics=None, learning_rate=0.01,
@@ -443,3 +444,99 @@ class StandardClassification(BaseProcess):
             prediction = self.classifier(inputs[0])
         return prediction
 
+    def fit(self, training_dataset, epochs=1, validation_dataset=None, step_callback=None, epoch_callback=None,
+            batch_size=8, warmup_frac=0.2, retain_best='loss', balance_method='undersample', **loader_kwargs):
+        """
+        sklearn/keras-like convenience method to simply proceed with training across multiple epochs of the provided
+        dataset
+
+        Parameters
+        ----------
+        training_dataset : DN3ataset, DataLoader
+        validation_dataset : DN3ataset, DataLoader
+        epochs : int
+        step_callback : callable
+                        Function to run after every training step that has signature: fn(train_metrics) -> None
+        epoch_callback : callable
+                        Function to run after every epoch that has signature: fn(validation_metrics) -> None
+        batch_size : int
+                     The batch_size to be used for the training and validation datasets. This is ignored if they are
+                     provided as `DataLoader`.
+        warmup_frac : float
+                      The fraction of iterations that will be spent *increasing* the learning rate under the default
+                      1cycle policy (with cosine annealing). Value will be automatically clamped values between [0, 0.5]
+        retain_best : (str, None)
+                      **If `validation_dataset` is provided**, which model weights to retain. If 'loss' (default), will
+                      retain the model at the epoch with the lowest validation loss. If another string, will assume that
+                      is the metric to monitor for the *highest score*. If None, the final model is used.
+        balance_method : (None, str)
+                         If and how to balance training samples when training. `None` will simply randomly
+                         sample all training samples equally. 'undersample' (default) will sample each class N_min times
+                         where N_min is equal to the number of examples in the minority class. 'oversample' will sample
+                         each class N_max times, where N_max is the number of the majority class.
+        loader_kwargs :
+                      Any remaining keyword arguments will be passed as such to any DataLoaders that are automatically
+                      constructed. If both training and validation datasets are provided as `DataLoaders`, this will be
+                      ignored.
+
+        Notes
+        -----
+        If the datasets above are provided as DN3atasets, automatic optimizations are performed to speed up loading.
+        These include setting the number of workers = to the number of CPUs/system threads - 1, and pinning memory for
+        rapid CUDA transfer if leveraging the GPU. Unless you are very comfortable with PyTorch, it's probably better
+        to not provide your own DataLoader, and let this be done automatically.
+
+        Returns
+        -------
+        train_log : Dataframe
+                    Metrics after each iteration of training as a pandas dataframe
+        validation_log : Dataframe
+                         Validation metrics after each epoch of training as a pandas dataframe
+        """
+        super(StandardClassification, self).fit(training_dataset, epochs=epochs, step_callback=step_callback,
+                                                epoch_callback=epoch_callback, batch_size=batch_size,
+                                                warmup_frac=warmup_frac, retain_best=retain_best,
+                                                **loader_kwargs)
+
+    @staticmethod
+    def _check_make_dataloader(dataset, training=False, **loader_kwargs):
+        if isinstance(dataset, DataLoader):
+            return dataset
+
+        # Only shuffle and drop last when training
+        loader_kwargs.setdefault('shuffle', training)
+        loader_kwargs.setdefault('drop_last', training)
+
+        if training and loader_kwargs.get('sampler', None) is None and loader_kwargs.get('balance_method', None) \
+                is not None:
+            method = loader_kwargs.pop('balance_method')
+            assert method.lower() in ['undersample', 'oversample']
+            if not hasattr(dataset, 'get_targets'):
+                print("Failed to create dataloader with {} balancing. {} does not support `get_targets()`.".format(
+                    method, dataset.__class__.__name__
+                ))
+            else:
+                sampler = balanced_undersampling(dataset) if method.lower() == 'undersample' \
+                    else balanced_oversampling(dataset)
+                return DataLoader(dataset, sampler=sampler, **loader_kwargs)
+
+        return DataLoader(dataset, **loader_kwargs)
+
+
+def _get_label_balance(dataset):
+    labels = dataset.get_targets()
+    counts = np.bincount(labels)
+    train_weights = 1. / torch.tensor(counts, dtype=torch.float)
+    sample_weights = train_weights[labels]
+    tqdm.tqdm.write('Class frequency: {}'.format(counts/counts.sum()))
+    return sample_weights, counts
+
+
+def balanced_undersampling(dataset, replacement=False):
+    sample_weights, counts = _get_label_balance(dataset)
+    return WeightedRandomSampler(sample_weights, len(counts) * int(counts.min()), replacement=replacement)
+
+
+def balanced_oversampling(dataset, replacement=True):
+    sample_weights, counts = _get_label_balance(dataset)
+    return WeightedRandomSampler(sample_weights, len(counts) * int(counts.max()), replacement=replacement)

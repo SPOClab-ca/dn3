@@ -153,6 +153,13 @@ class TestDatasetDummyData(unittest.TestCase):
             self.assertSetEqual(set(testing.get_thinkers()), set(test_people))
             self.assertEqual(len(set(testing.get_thinkers()).intersection(validation.get_thinkers())), 0)
 
+    def test_DatasetGetTargets(self):
+        targets = self.dataset.get_targets()
+        for i, y in enumerate(targets):
+            with self.subTest(i=i):
+                label = EVENTS[i % len(EVENTS)][1]
+                self.assertEqual(label - 1, y)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -38,6 +38,18 @@ class _DumbNamespace:
         self.__dict__.update(d)
 
 
+def _adopt_auxiliaries(obj, remaining):
+    def namespaceify(v):
+        if isinstance(v, dict):
+            return _DumbNamespace(v)
+        elif isinstance(v, list):
+            return [namespaceify(v[i]) for i in range(len(v))]
+        else:
+            return v
+
+    obj.__dict__.update({k: namespaceify(v) for k, v in remaining.items()})
+
+
 class ExperimentConfig:
     """
     Parses DN3 configuration files. Checking the DN3 token for listed datasets.
@@ -93,14 +105,7 @@ class ExperimentConfig:
         print("Configuratron found {} datasets.".format(len(self.datasets), "s" if len(self.datasets) > 0 else ""))
 
         if adopt_auxiliaries:
-            def namespaceify(v):
-                if isinstance(v, dict):
-                    return _DumbNamespace(v)
-                elif isinstance(v, list):
-                    return [namespaceify(v[i]) for i in range(len(v))]
-                else:
-                    return v
-            self.__dict__.update({k: namespaceify(v) for k, v in working_config.items()})
+            _adopt_auxiliaries(self, working_config)
 
 
 class DatasetConfig:
@@ -193,7 +198,7 @@ class DatasetConfig:
         # The rest
         if adopt_auxiliaries and len(config) > 0:
             print("Adding additional configuration entries: {}".format(config.keys()))
-            self.__dict__.update(config)
+            _adopt_auxiliaries(self, config)
 
         self._extension_handlers = _SUPPORTED_EXTENSIONS.copy()
         if ext_handlers is not None:
