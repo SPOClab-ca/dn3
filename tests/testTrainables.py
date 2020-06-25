@@ -4,6 +4,7 @@ import unittest
 
 from torch.utils.data import DataLoader
 from dn3.trainable.processes import StandardClassification
+from dn3.metrics.base import auroc
 from tests.dummy_data import create_dummy_dataset, retrieve_underlying_dummy_data, EVENTS
 
 
@@ -53,6 +54,12 @@ class TestSimpleClassifier(unittest.TestCase):
                                             epoch_callback=check_eval_mode)
 
         self.assertEqual(len(train_log), self._NUM_EPOCHS * len(self.dataset) // self._BATCH_SIZE)
+
+    def test_EvaluationMetrics(self):
+        trainable = StandardClassification(self.classifier, metrics=dict(AUROC=auroc))
+        val_metrics = trainable.evaluate(self.dataset)
+        self.assertIn('AUROC', val_metrics)
+        self.assertIn('loss', val_metrics)
 
 
 if __name__ == '__main__':

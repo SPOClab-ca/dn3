@@ -172,7 +172,11 @@ class BaseProcess(object):
         """
         metrics = OrderedDict()
         for met_name, met_fn in self.metrics.items():
-            metrics[met_name] = met_fn(inputs, outputs)
+            try:
+                metrics[met_name] = met_fn(inputs, outputs)
+            # I know its super broad, but basically if metrics fail during training, I want to just ignore them...
+            except:
+                continue
         return metrics
 
     def backward(self, loss):
@@ -216,34 +220,53 @@ class BaseProcess(object):
         metrics : OrderedDict
                 Metric scores for the entire
         """
+        inputs, outputs = self.predict(dataset, **loader_kwargs)
+        metrics = self.calculate_metrics(inputs, outputs)
+        metrics['loss'] = self.calculate_loss(inputs, outputs).item()
+        return metrics
+
+    def predict(self, dataset, **loader_kwargs):
+        """
+        Determine the outputs for all loaded data from the dataset
+
+        Parameters
+        ----------
+        dataset: DN3ataset, DataLoader
+                 The dataset that will be used for evaluation, if not a DataLoader, one will be constructed
+        loader_kwargs: dict
+                       Args that will be passed to the dataloader, but `shuffle` and `drop_last` will be both be
+                       forced to `False`
+
+        Returns
+        -------
+        inputs : Tensor
+                 The exact inputs used to calculate the outputs (in case they were stochastic and need saving)
+        outputs : Tensor
+                  The outputs from each run of :function:`forward`
+        """
         self.train(False)
         loader_kwargs.setdefault('batch_size', 1)
         dataset = self._check_make_dataloader(dataset, training=False, **loader_kwargs)
 
-        num_points = 0
         pbar = tqdm.trange(len(dataset), desc="Iteration")
         data_iterator = iter(dataset)
-        metrics = OrderedDict()
 
-        def update_metrics(new_metrics: dict, batch_size):
-            if len(metrics) == 0:
-                return metrics.update(new_metrics)
-            else:
-                for m in new_metrics:
-                    metrics[m] = (metrics[m] * (num_points - batch_size) + new_metrics[m] * batch_size) / num_points
+        inputs = list()
+        outputs = list()
 
         with torch.no_grad():
             for iteration in pbar:
-                inputs = self._get_batch(data_iterator)
-                bs = inputs[0].shape[0]
-                outputs = self.forward(*inputs)
-                calc_metrics = self.calculate_metrics(inputs, outputs)
-                calc_metrics['loss'] = self.calculate_loss(inputs, outputs).item()
-                num_points += bs
-                update_metrics(calc_metrics, bs)
-                pbar.set_postfix(metrics)
+                input_batch = self._get_batch(data_iterator)
+                outputs.append(self.forward(*input_batch))
+                inputs.append(input_batch)
 
-        return metrics
+        def package_multiple_tensors(batches: list):
+            if isinstance(batches[0], torch.Tensor):
+                return torch.cat(batches)
+            elif isinstance(batches[0], (tuple, list)):
+                return [torch.cat(b) for b in zip(*batches)]
+
+        return package_multiple_tensors(inputs), package_multiple_tensors(outputs)
 
     @classmethod
     def standard_logging(cls, metrics: dict, start_message="End of Epoch"):
@@ -520,6 +543,9 @@ class StandardClassification(BaseProcess):
                 sampler = balanced_undersampling(dataset) if method.lower() == 'undersample' \
                     else balanced_oversampling(dataset)
                 return DataLoader(dataset, sampler=sampler, **loader_kwargs)
+
+        # Make sure balance method doesn't not passed to DataLoader at this point.
+        loader_kwargs.pop('balance_method', None)
 
         # Shuffle if not already specifying weighted sampler
         loader_kwargs.setdefault('shuffle', training)
