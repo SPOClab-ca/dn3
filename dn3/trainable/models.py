@@ -225,15 +225,15 @@ class EEGNet(Classifier):
 
     def __init__(self, targets, samples, channels, do=0.25, pooling=8, F1=8, D=2, t_len=65, F2=16,
                  return_features=False):
-        samples = samples // (pooling // 2)
-        samples = samples // pooling
-        self._num_features = F2 * samples
-        super().__init__(targets, samples, channels, return_features=return_features)
-
         if t_len >= samples:
             print("Warning: EEGNet `t_len` too long for sample length, reverting to 0.25 sample length")
             t_len = samples // 4
             t_len = t_len if t_len % 2 else t_len+1
+
+        samples = samples // (pooling // 2)
+        samples = samples // pooling
+        self._num_features = F2 * samples
+        super().__init__(targets, samples, channels, return_features=return_features)
 
         self.init_conv = nn.Sequential(
             Expand(1),

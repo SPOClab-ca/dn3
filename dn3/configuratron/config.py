@@ -100,7 +100,8 @@ class ExperimentConfig:
         for i, name in enumerate(usable_datasets):
             if name in ds_entries.keys():
                 self.datasets[name] = DatasetConfig(name, ds_entries[name], deep1010=self._make_deep1010,
-                                                    samples=self.global_samples, preload=preload)
+                                                    samples=self.global_samples, sfreq=self.global_sfreq,
+                                                    preload=preload)
             else:
                 raise DN3ConfigException("Could not find {} in datasets".format(name))
 
@@ -353,7 +354,7 @@ class DatasetConfig:
         raw = raw.rename_channels(renaming_map)
 
         if self.tlen is None:
-            tlen = self._samples * self.decimate / raw.info['sfreq']
+            tlen = self._samples / new_sfreq
         else:
             tlen = self.tlen
 
@@ -371,7 +372,8 @@ class DatasetConfig:
 
         if len(recording) == 0:
             raise DN3ConfigException("The recording at {} has no viable training data with the configuration options "
-                                     "provided. Consider excluding this file or changing parameters.")
+                                     "provided. Consider excluding this file or changing parameters.".format(str(session
+                                                                                                                 )))
 
         if self.deep1010 is not None:
             # FIXME dataset not fully formed, but we can hack together something for now
@@ -383,7 +385,7 @@ class DatasetConfig:
                                [raw.ch_names[i] for i in range(len(raw.ch_names)) if i not in picks])
 
         if recording.sfreq != new_sfreq:
-            new_sequence_len = int(new_sfreq * recording.sequence_length / recording.sfreq)
+            new_sequence_len = int(tlen * new_sfreq) if self._samples is None else self._samples
             recording.add_transform(TemporalInterpolation(new_sequence_len, new_sfreq=new_sfreq))
 
         return recording

@@ -1,6 +1,7 @@
 import re
 from sys import gettrace
 
+from dn3.utils import LabelSmoothedCrossEntropyLoss
 from dn3.trainable.models import DN3BaseModel, Classifier
 
 # Swap these two for Ipython/Jupyter
@@ -75,7 +76,7 @@ class BaseProcess(object):
         self.weight_decay = l2_weight_decay
 
     def set_optimizer(self, optimizer):
-        assert isinstance(optimizer, torch.optim.optimizer.Optimizer)
+        assert isinstance(optimizer, torch.optim.Optimizer)
         del self.optimizer
         self.optimizer = optimizer
 
@@ -450,14 +451,15 @@ class BaseProcess(object):
 class StandardClassification(BaseProcess):
 
     def __init__(self, classifier: torch.nn.Module, loss_fn=None, cuda=None, metrics=None, learning_rate=0.01,
-                 **kwargs):
+                 label_smoothing=0.15, **kwargs):
         if isinstance(metrics, dict):
             metrics.setdefault('Accuracy', self._simple_accuracy)
         else:
             metrics = dict(Accuracy=self._simple_accuracy)
         super(StandardClassification, self).__init__(cuda=cuda, lr=learning_rate, classifier=classifier,
                                                      metrics=metrics, **kwargs)
-        self.loss = torch.nn.CrossEntropyLoss().to(self.device) if loss_fn is None else loss_fn.to(self.device)
+        self.loss = LabelSmoothedCrossEntropyLoss(classifier.targets).to(self.device) if loss_fn is None else \
+            loss_fn.to(self.device)
         self.best_metric = None
 
     @staticmethod

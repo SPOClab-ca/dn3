@@ -62,3 +62,25 @@ def make_epochs_from_raw(raw: mne.io.Raw, tmin, tlen, event_ids=None, baseline=N
 
     return mne.Epochs(raw, events, tmin=tmin, tmax=tmin + tlen - 1 / sfreq, preload=True, decim=decim,
                       baseline=baseline, reject_by_annotation=drop_bad)
+
+
+# From: https://github.com/pytorch/pytorch/issues/7455
+class LabelSmoothedCrossEntropyLoss(torch.nn.Module):
+    """this loss performs label smoothing to compute cross-entropy with soft labels, when smoothing=0.0, this
+    is the same as torch.nn.CrossEntropyLoss"""
+
+    def __init__(self, n_classes, smoothing=0.0, dim=-1):
+        super().__init__()
+        self.confidence = 1.0 - smoothing
+        self.smoothing = smoothing
+        self.n_classes = n_classes
+        self.dim = dim
+
+    def forward(self, pred, target):
+        pred = pred.log_softmax(dim=self.dim)
+        with torch.no_grad():
+            true_dist = torch.zeros_like(pred)
+            true_dist.fill_(self.smoothing / (self.n_classes - 1))
+            true_dist.scatter_(1, target.data.unsqueeze(1), self.confidence)
+
+        return torch.mean(torch.sum(-true_dist * pred, dim=self.dim))

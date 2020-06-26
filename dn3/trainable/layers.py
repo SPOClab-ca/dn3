@@ -32,6 +32,8 @@ class Permute(nn.Module):
 
 class Concatenate(_SingleAxisOperation):
     def forward(self, *x):
+        if len(x) == 1 and isinstance(x[0], tuple):
+            x = x[0]
         return torch.cat(x, dim=self.axis)
 
 

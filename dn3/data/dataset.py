@@ -152,8 +152,10 @@ class _Recording(DN3ataset, ABC):
 def _same_channel_sets(channel_sets: list):
     """Validate that all the channel sets are consistent, return false if not"""
     for chs in channel_sets[1:]:
-        if not np.all(channel_sets[0] == chs):
+        if chs.shape[0] != channel_sets[0].shape[0] or chs.shape[1] != channel_sets[0].shape[1]:
             return False
+        # if not np.all(channel_sets[0] == chs):
+        #     return False
     return True
 
 
@@ -652,9 +654,9 @@ class Dataset(DN3ataset, ConcatDataset):
 
     def __str__(self):
         ds_name = "Dataset-{}".format(self.dataset_id) if self.info is None else self.info.dataset_name
-        return ">> {} << | DSID: {} | {} people | {} trials | {} channels | {} samples/trial | {:.1f}Hz".format(
-            ds_name, self.dataset_id, len(self.get_thinkers()), len(self), len(self.channels), self.sequence_length,
-            self.sfreq)
+        return ">> {} | DSID: {} | {} people | {} trials | {} channels | {} samples/trial | {:.1f}Hz | {} transforms".\
+            format(ds_name, self.dataset_id, len(self.get_thinkers()), len(self), len(self.channels),
+                   self.sequence_length, self.sfreq, len(self._transforms))
 
     def __add__(self, thinker, person_id=None, return_session_id=None):
         assert isinstance(thinker, Thinker)
