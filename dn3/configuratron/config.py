@@ -384,7 +384,7 @@ class DatasetConfig:
 
         if recording.sfreq != new_sfreq:
             new_sequence_len = int(new_sfreq * recording.sequence_length / recording.sfreq)
-            recording.add_transform(TemporalInterpolation(new_sequence_len))
+            recording.add_transform(TemporalInterpolation(new_sequence_len, new_sfreq=new_sfreq))
 
         return recording
 
@@ -444,6 +444,7 @@ class DatasetConfig:
                            targets=self._targets if self._targets is not None else len(self._unique_events))
         dsargs.setdefault('dataset_info', info)
         dataset = Dataset(thinkers, **dsargs)
+        print(dataset)
         if self.deep1010 is not None:
             print("Constructed {} channel maps".format(len(self._different_deep1010s)))
             for names, deep_mapping, unused, count in self._different_deep1010s:

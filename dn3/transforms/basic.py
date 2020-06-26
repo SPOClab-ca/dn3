@@ -135,7 +135,7 @@ class TemporalPadding(BaseTransform):
 
 class TemporalInterpolation(BaseTransform):
 
-    def __init__(self, desired_sequence_length, mode='nearest'):
+    def __init__(self, desired_sequence_length, mode='nearest', new_sfreq=None):
         """
         This is in essence a DN3 wrapper for the pytorch function
         `interpolate() <https://pytorch.org/docs/stable/nn.functional.html>`_
@@ -155,10 +155,13 @@ class TemporalInterpolation(BaseTransform):
         mode: str
               The technique that will be used for upsampling data, by default 'nearest' interpolation. Other options
               are listed under pytorch's interpolate function.
+        new_sfreq: float, None
+                   If specified, registers the change in sampling frequency
         """
         super().__init__()
         self._new_sequence_length = desired_sequence_length
         self.mode = mode
+        self._new_sfreq = new_sfreq
 
     def __call__(self, x):
         # squeeze and unsqueeze because these are done before batching
@@ -172,6 +175,12 @@ class TemporalInterpolation(BaseTransform):
 
     def new_sequence_length(self, old_sequence_length):
         return self._new_sequence_length
+
+    def new_sfreq(self, old_sfreq):
+        if self._new_sfreq is not None:
+            return self._new_sfreq
+        else:
+            return old_sfreq
 
 
 class MappingDeep1010(BaseTransform):

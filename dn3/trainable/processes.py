@@ -96,11 +96,11 @@ class BaseProcess(object):
             nw = bin(int(m.group(1).replace(',', ''), 16)).count('1')
             # Cap the number of workers at 6 (actually 4) to avoid pummeling disks too hard
             nw = min(num_worker_cap, nw)
-            print("Loading data with {} additional workers".format(nw))
         else:
             # 0 workers means not extra processes are spun up
             nw = 2
         loader_kwargs.setdefault('num_workers', int(nw - 2))
+        print("Loading data with {} additional workers".format(loader_kwargs['num_workers']))
         return loader_kwargs
 
     def _get_batch(self, iterator):
