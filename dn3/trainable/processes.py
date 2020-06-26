@@ -451,15 +451,20 @@ class BaseProcess(object):
 class StandardClassification(BaseProcess):
 
     def __init__(self, classifier: torch.nn.Module, loss_fn=None, cuda=None, metrics=None, learning_rate=0.01,
-                 label_smoothing=0.15, **kwargs):
+                 label_smoothing=None, **kwargs):
         if isinstance(metrics, dict):
             metrics.setdefault('Accuracy', self._simple_accuracy)
         else:
             metrics = dict(Accuracy=self._simple_accuracy)
         super(StandardClassification, self).__init__(cuda=cuda, lr=learning_rate, classifier=classifier,
                                                      metrics=metrics, **kwargs)
-        self.loss = LabelSmoothedCrossEntropyLoss(classifier.targets).to(self.device) if loss_fn is None else \
-            loss_fn.to(self.device)
+        if label_smoothing is not None and isinstance(label_smoothing, float) and (0 < label_smoothing < 1):
+            self.loss = LabelSmoothedCrossEntropyLoss(self.classifier.targets, smoothing=label_smoothing).\
+                to(self.device)
+        elif loss_fn is None:
+            self.loss = torch.nn.CrossEntropyLoss().to(self.device)
+        else:
+            self.loss = loss_fn.to(self.device)
         self.best_metric = None
 
     @staticmethod

@@ -362,7 +362,7 @@ class Thinker(DN3ataset, ConcatDataset):
         ConcatDataset.__init__(self, self.sessions.values())
 
     def __str__(self):
-        return "Person {} - {} trials".format(self.person_id, len(self))
+        return "Person {} - {} trials | {} transforms".format(self.person_id, len(self), len(self._transforms))
 
     @property
     def sfreq(self):
