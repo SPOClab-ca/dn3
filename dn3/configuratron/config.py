@@ -11,7 +11,7 @@ from mne import pick_types
 
 from dn3.data.dataset import Dataset, RawTorchRecording, EpochTorchRecording, Thinker, DatasetInfo
 from dn3.utils import make_epochs_from_raw, DN3ConfigException
-from dn3.transforms.basic import MappingDeep1010
+from dn3.transforms.basic import MappingDeep1010, TemporalInterpolation
 from dn3.transforms.channels import stringify_channel_mapping
 
 
@@ -84,6 +84,7 @@ class ExperimentConfig:
         if self.experiment is None:
             self._make_deep1010 = dict()
             self.global_samples = None
+            self.global_sfreq = None
             preload = False
         else:
             # If not None, will be used
@@ -91,6 +92,7 @@ class ExperimentConfig:
             if isinstance(self._make_deep1010, bool):
                 self._make_deep1010 = dict() if self._make_deep1010 else None
             self.global_samples = self.experiment.get('samples', None)
+            self.global_sfreq = self.experiment.get('sfreq', None)
             usable_datasets = self.experiment.get('use_only', usable_datasets)
             preload = self.experiment.get('preload', False)
 
@@ -113,7 +115,7 @@ class DatasetConfig:
     Parses dataset entries in DN3 config
     """
     def __init__(self, name: str, config: dict, adopt_auxiliaries=True, ext_handlers=None, deep1010=True,
-                 samples=None, preload=False):
+                 samples=None, sfreq=None, preload=False):
         """
         Parses dataset entries in DN3 config
         Parameters
@@ -131,6 +133,11 @@ class DatasetConfig:
         deep1010 : None, dict
                    If `None` (default) will not use the Deep1010 to map channels. If a dict, will add this transform
                    to each recording, with keyword arguments from the dict.
+        samples: int, None
+                 Experiment level sample length, superceded by dataset-specific configuration
+        sfreq: float, None
+               Experiment level sampling frequency to be adhered to, this will be enforced if not None, ignoring
+               decimate.
         preload: bool
                  Whether to preload recordings when creating datasets from the configuration. Can also be specified with
                  `preload` configuratron entry.
@@ -187,6 +194,10 @@ class DatasetConfig:
         self._unique_events = set()
 
         self._samples = get_pop('samples', samples)
+        self._sfreq = sfreq
+        if sfreq is not None and self.decimate > 1:
+            print("{}: No need to specify decimate ({}) when sfreq is set ({})".format(self.name, self.decimate, sfreq))
+            self.decimate = 1
 
         # Required args
         try:
@@ -316,12 +327,16 @@ class DatasetConfig:
         raw = self._load_raw(session)
 
         # Don't allow violation of Nyquist criterion
-        if raw.info.get('lowpass', None) is not None and raw.info['sfreq'] / self.decimate < 2 * raw.info['lowpass']:
+        lowpass = raw.info.get('lowpass', None)
+        raw_sfreq = raw.info['sfreq']
+        new_sfreq = raw_sfreq / self.decimate if self._sfreq is None else self._sfreq
+        if lowpass is not None and (new_sfreq < 2 * lowpass):
             raise DN3ConfigException("Could not create raw for {}. With lowpass filter {}, sampling frequency {} and "
-                                     "decimate {}. This is going to have bad aliasing!".format(session,
-                                                                                               raw.info['lowpass'],
-                                                                                               raw.info['sfreq'],
-                                                                                               self.decimate))
+                                     "new sfreq {}. This is going to have bad aliasing!".format(session,
+                                                                                                raw.info['lowpass'],
+                                                                                                raw.info['sfreq'],
+                                                                                                new_sfreq))
+
         # Pick types
         picks = pick_types(raw.info, **{t: t in self.picks for t in self._PICK_TYPES}) if self._picks_as_types() \
             else list(range(len(raw.ch_names)))
@@ -342,6 +357,7 @@ class DatasetConfig:
         else:
             tlen = self.tlen
 
+        # Fixme - deprecate the decimate option in favour of specifying desired sfreq's
         if self._create_raw_recordings:
             recording = RawTorchRecording(raw, tlen, stride=self.stride, decimate=self.decimate, ch_ind_picks=picks)
         else:
@@ -365,6 +381,10 @@ class DatasetConfig:
             recording.add_transform(xform)
             self._add_deep1010([raw.ch_names[i] for i in picks], xform.mapping.numpy(),
                                [raw.ch_names[i] for i in range(len(raw.ch_names)) if i not in picks])
+
+        if recording.sfreq != new_sfreq:
+            new_sequence_len = int(new_sfreq * recording.sequence_length / recording.sfreq)
+            recording.add_transform(TemporalInterpolation(new_sequence_len))
 
         return recording
 

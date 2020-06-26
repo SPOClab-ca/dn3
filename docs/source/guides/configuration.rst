@@ -138,6 +138,11 @@ deep1010 *(bool)*
 samples *(int)*
   Providing samples
 
+sfreq *(float)*
+  Enforce a global sampling frequency, down or upsampling loaded sessions if necessary. If a session cannot be
+  downsampled without aliasing (it violates the nyquist criterion), a warning message will be printed, and the session
+  will be skipped.
+
 preload *(bool)*
   Whether to preload recordings for all datasets. *This is overridden by individual `preload` options
   for dataset configurations.

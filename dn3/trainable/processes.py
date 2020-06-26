@@ -85,7 +85,7 @@ class BaseProcess(object):
     def add_metrics(self, metrics: dict):
         self.metrics.update(**metrics)
 
-    def _optimize_dataloader_kwargs(self, num_worker_cap=10, **loader_kwargs):
+    def _optimize_dataloader_kwargs(self, num_worker_cap=6, **loader_kwargs):
         loader_kwargs.setdefault('pin_memory', self.cuda == 'cuda')
         # Use multiple worker processes when NOT DEBUGGING
         if gettrace() is None:
@@ -94,8 +94,9 @@ class BaseProcess(object):
             m = re.search(r'(?m)^Cpus_allowed:\s*(.*)$',
                           open('/proc/self/status').read())
             nw = bin(int(m.group(1).replace(',', ''), 16)).count('1')
-            # Cap the number of workers at 10 to avoid pummeling disks too hard
-            nw = min(10, nw)
+            # Cap the number of workers at 6 (actually 4) to avoid pummeling disks too hard
+            nw = min(num_worker_cap, nw)
+            print("Loading data with {} additional workers".format(nw))
         else:
             # 0 workers means not extra processes are spun up
             nw = 2
@@ -248,7 +249,7 @@ class BaseProcess(object):
         loader_kwargs.setdefault('batch_size', 1)
         dataset = self._check_make_dataloader(dataset, training=False, **loader_kwargs)
 
-        pbar = tqdm.trange(len(dataset), desc="Iteration")
+        pbar = tqdm.trange(len(dataset), desc="Predicting")
         data_iterator = iter(dataset)
 
         inputs = list()
@@ -403,7 +404,10 @@ class BaseProcess(object):
                 return metrics.update(new_metrics)
             else:
                 for m in new_metrics:
-                    metrics[m] = (metrics[m] * (iterations - 1) + new_metrics[m]) / iterations
+                    try:
+                        metrics[m] = (metrics[m] * (iterations - 1) + new_metrics[m]) / iterations
+                    except KeyError:
+                        metrics[m] = new_metrics[m]
 
         epoch_bar = tqdm.trange(1, epochs+1, desc="Epoch", unit='epoch')
         for epoch in epoch_bar:
