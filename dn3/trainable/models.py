@@ -78,7 +78,13 @@ class Classifier(DN3BaseModel):
         """
         targets = dataset.info.targets if dataset.info is not None and isinstance(dataset.info.targets, int) else 2
         modelargs.setdefault('targets', targets)
-        return super(Classifier, cls).from_dataset(dataset, **modelargs)
+        print("Creating {} using: {} channels x {} samples at {}Hz | {} targets".format(cls.__name__,
+                                                                                        len(dataset.channels),
+                                                                                        dataset.sequence_length,
+                                                                                        dataset.sfreq,
+                                                                                        modelargs['targets']))
+        assert isinstance(dataset, DN3ataset)
+        return cls(samples=dataset.sequence_length, channels=len(dataset.channels), **modelargs)
 
     def __init__(self, targets, samples, channels, return_features=True):
         super(Classifier, self).__init__(samples, channels, return_features=return_features)

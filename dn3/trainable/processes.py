@@ -154,7 +154,8 @@ class BaseProcess(object):
         Loss :
              Single loss quantity to be minimized.
         """
-        return self.loss(outputs, inputs[-1])
+        loss_fn = self.loss.to('cpu')
+        return loss_fn(outputs, inputs[-1])
 
     def calculate_metrics(self, inputs, outputs):
         """
@@ -259,8 +260,13 @@ class BaseProcess(object):
         with torch.no_grad():
             for iteration in pbar:
                 input_batch = self._get_batch(data_iterator)
-                outputs.append(self.forward(*input_batch))
-                inputs.append(input_batch)
+                output_batch = self.forward(*input_batch)
+
+                inputs.append([tensor.cpu() for tensor in input_batch])
+                if isinstance(output_batch, torch.Tensor):
+                    outputs.append(output_batch)
+                else:
+                    outputs.append([tensor.cpu() for tensor in output_batch])
 
         def package_multiple_tensors(batches: list):
             if isinstance(batches[0], torch.Tensor):
