@@ -49,8 +49,8 @@ Want to bandpass filter the data between 0.1Hz and 40Hz before use?
      toplevel: /path/to/the/files
      tmin: -0.1
      tlen: 1.5
-     bandpass: [0.1, 40]
-
+     hpf: 0.1
+     lpf: 40
 
 
 Hopefully this illustrates the advantage of organizing datasets in this way.
@@ -239,6 +239,14 @@ name *(string)*
 
 preload *(bool)*
   Whether to preload the recordings from this dataset. This overrides the experiment level `preload1 option
+
+hpf *(float)*
+  This entry (and the very similar `lpf` option) provide an option to highpass filter the raw data before anything else.
+  It also supercedes any `preload`ing options, as the data needs to be loaded to perform this. It is specified in Hz.
+
+lpf *(float)*
+  This entry (and the very similar `hpf` option) provide an option to lowpass filter the raw data before anything else.
+  It also supercedes any `preload`ing options, as the data needs to be loaded to perform this. It is specified in Hz.
 
 extensions *(list)*
   The file extensions to seek out when searching for sessions in the dataset. These should include the '.', as in '.edf'

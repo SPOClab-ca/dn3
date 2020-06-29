@@ -183,6 +183,11 @@ class DatasetConfig:
         self.data_min = get_pop('data_min')
         self.name = get_pop('name', name)
         self.preload = get_pop('preload', preload)
+        self.hpf = get_pop('hpf', None)
+        self.lpf = get_pop('lpf', None)
+        self.filter_data = self.hpf is not None or self.lpf is not None
+        if self.filter_data:
+            self.preload = True
         self.stride = get_pop('stride', 1)
         self.extensions = get_pop('file_extensions', list(_SUPPORTED_EXTENSIONS.keys()))
         self.exclude_people = get_pop('exclude_people', list())
@@ -326,6 +331,9 @@ class DatasetConfig:
             session = Path(session)
 
         raw = self._load_raw(session)
+
+        if self.filter_data:
+            raw = raw.filter(self.hpf, self.lpf)
 
         # Don't allow violation of Nyquist criterion
         lowpass = raw.info.get('lowpass', None)
