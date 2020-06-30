@@ -9,6 +9,9 @@ import tqdm
 # import tqdm.notebook as tqdm
 
 import torch
+# ugh the worst, why did they make this protected...
+from torch.optim.lr_scheduler import _LRScheduler as Scheduler
+
 import numpy as np
 from pandas import DataFrame
 from collections import OrderedDict
@@ -81,7 +84,23 @@ class BaseProcess(object):
         self.optimizer = optimizer
 
     def set_scheduler(self, scheduler):
-        self.scheduler = scheduler
+        """
+        This allow the addition of a learning rate schedule to the process. By default, a linear warmup with cosine
+        decay will be used. Any scheduler that is an instance of :any:`Scheduler` (pytorch's schedulers, or extensions
+        thereof) can be set here. Additionally, a string keywords can be used including:
+          - "constant"
+
+        Parameters
+        ----------
+        scheduler: str, Scheduler
+        """
+        if isinstance(scheduler, str):
+            if scheduler.lower() == 'constant':
+                self.scheduler = torch.optim.lr_scheduler.LambdaLR(self.optimizer, lambda e: 1.0)
+            else:
+                raise ValueError("Scheduler {} is not supported.".format(scheduler))
+        else:
+            self.scheduler = scheduler
 
     def add_metrics(self, metrics: dict):
         self.metrics.update(**metrics)
@@ -264,7 +283,7 @@ class BaseProcess(object):
 
                 inputs.append([tensor.cpu() for tensor in input_batch])
                 if isinstance(output_batch, torch.Tensor):
-                    outputs.append(output_batch)
+                    outputs.append(output_batch.cpu())
                 else:
                     outputs.append([tensor.cpu() for tensor in output_batch])
 
