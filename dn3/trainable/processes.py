@@ -173,7 +173,11 @@ class BaseProcess(object):
         Loss :
              Single loss quantity to be minimized.
         """
-        loss_fn = self.loss.to('cpu')
+        if isinstance(outputs, (tuple, list)):
+            device = outputs[0].device
+        else:
+            device = outputs.device
+        loss_fn = self.loss.to(device)
         return loss_fn(outputs, inputs[-1])
 
     def calculate_metrics(self, inputs, outputs):
@@ -502,6 +506,18 @@ class StandardClassification(BaseProcess):
         else:
             prediction = self.classifier(inputs[0])
         return prediction
+
+    def calculate_loss(self, inputs, outputs):
+        inputs = list(inputs)
+
+        def expand_for_strided_loss(factors):
+            inputs[-1] = inputs[-1].unsqueeze(-1).expand(-1, *factors)
+
+        check_me = outputs[0] if isinstance(outputs, (list, tuple)) else outputs
+        if len(check_me.shape) >= 3:
+            expand_for_strided_loss(check_me.shape[2:])
+
+        return super(StandardClassification, self).calculate_loss(inputs, outputs)
 
     def fit(self, training_dataset, epochs=1, validation_dataset=None, step_callback=None, epoch_callback=None,
             batch_size=8, warmup_frac=0.2, retain_best='loss', balance_method='undersample', **loader_kwargs):

@@ -64,7 +64,7 @@ def create_dummy_dataset(epoched=True, sessions_per_thinker=2, num_thinkers=THIN
                          sess_args=dict(), thinker_args=dict(), **dataset_args):
     thinker = create_dummy_thinker(epoched=epoched, sessions_per_thinker=sessions_per_thinker, sess_args=sess_args,
                                    **thinker_args)
-    info = DatasetInfo('Test dataset', data_max=1.0, data_min=-1.0)
+    info = DatasetInfo('Test dataset', data_max=1.0, data_min=-1.0, targets=3)
     dataset_args.setdefault('dataset_info', info)
     return Dataset({"p{}".format(i): thinker.clone() for i in range(num_thinkers)}, **dataset_args)
 

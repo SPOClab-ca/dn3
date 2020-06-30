@@ -4,6 +4,7 @@ import unittest
 
 from torch.utils.data import DataLoader
 from dn3.trainable.processes import StandardClassification
+from dn3.trainable.models import EEGNetStrided
 from dn3.metrics.base import auroc
 from tests.dummy_data import create_dummy_dataset, retrieve_underlying_dummy_data, EVENTS
 
@@ -54,6 +55,26 @@ class TestSimpleClassifier(unittest.TestCase):
                                             epoch_callback=check_eval_mode)
 
         self.assertEqual(len(train_log), self._NUM_EPOCHS * len(self.dataset) // self._BATCH_SIZE)
+
+    def test_StridedFit(self):
+        stride_classifier = EEGNetStrided.from_dataset(self.dataset)
+        trainable = StandardClassification(stride_classifier)
+        loader = DataLoader(self.dataset, batch_size=self._BATCH_SIZE, shuffle=True, num_workers=self._NUM_WORKERS,
+                            drop_last=True)
+
+        def check_train_mode(metrics):
+            with self.subTest("train-mode"):
+                self.assertTrue(self.classifier.training)
+
+        def check_eval_mode(metrics):
+            with self.subTest("eval-mode"):
+                self.assertFalse(self.classifier.training)
+
+        train_log, eval_log = trainable.fit(loader, epochs=self._NUM_EPOCHS, step_callback=check_train_mode,
+                                            epoch_callback=check_eval_mode)
+
+        self.assertEqual(len(train_log), self._NUM_EPOCHS * len(self.dataset) // self._BATCH_SIZE)
+
 
     def test_EvaluationMetrics(self):
         trainable = StandardClassification(self.classifier, metrics=dict(AUROC=auroc))

@@ -1,3 +1,5 @@
+from abc import ABCMeta
+
 import math
 
 from copy import deepcopy
@@ -164,6 +166,19 @@ class Classifier(DN3BaseModel):
         torch.save(state_dict, filename)
 
 
+class StrideClassifier(Classifier, metaclass=ABCMeta):
+
+    def __init__(self, targets, samples, channels, stride_width=2, return_features=False):
+        self.stride_width = stride_width
+        super(StrideClassifier, self).__init__(targets, samples, channels, return_features=return_features)
+
+    def make_new_classification_layer(self):
+        self.classifier = torch.nn.Conv1d(self.num_features_for_classification, self.targets,
+                                          kernel_size=self.stride_width)
+        torch.nn.init.xavier_normal_(self.classifier.weight)
+        self.classifier.bias.data.zero_()
+
+
 class LogRegNetwork(Classifier):
     """
     In effect, simply an implementation of linear kernel (multi)logistic regression
@@ -273,3 +288,63 @@ class EEGNet(Classifier):
         x = self.init_conv(x)
         x = self.depth_conv(x)
         return self.sep_conv(x)
+
+
+class EEGNetStrided(StrideClassifier):
+    """
+    This is the DN3 re-implementation of Lawhern et. al.'s EEGNet from:
+    https://iopscience.iop.org/article/10.1088/1741-2552/aace8c
+
+    Notes
+    -----
+    The implementation below is in no way officially sanctioned by the original authors, and in fact is  missing the
+    constraints the original authors have on the convolution kernels, and may or may not be missing more...
+
+    That being said, in *our own personal experience*, this implementation has fared no worse when compared to
+    implementations that include this constraint (albeit, those were *also not written* by the original authors).
+    """
+
+    def __init__(self, targets, samples, channels, do=0.25, pooling=8, F1=8, D=2, t_len=65, F2=16,
+                 return_features=False, stride_width=2):
+        if t_len >= samples:
+            print("Warning: EEGNet `t_len` too long for sample length, reverting to 0.25 sample length")
+            t_len = samples // 4
+            t_len = t_len if t_len % 2 else t_len+1
+
+        samples = samples // (pooling // 2)
+        samples = samples // pooling
+        self._num_features = F2
+        super().__init__(targets, samples, channels, return_features=return_features, stride_width=stride_width)
+
+        self.init_conv = nn.Sequential(
+            Expand(1),
+            nn.Conv2d(1, F1, (1, t_len), padding=(0, t_len // 2), bias=False),
+            nn.BatchNorm2d(F1)
+        )
+
+        self.depth_conv = nn.Sequential(
+            nn.Conv2d(F1, D * F1, (channels, 1), bias=False, groups=F1),
+            nn.BatchNorm2d(D * F1),
+            nn.ELU(),
+            nn.AvgPool2d((1, pooling // 2)),
+            nn.Dropout(do)
+        )
+
+        self.sep_conv = nn.Sequential(
+            # Separate into two convs, one that doesnt operate across filters, one isolated to filters
+            nn.Conv2d(D*F1, D*F1, (1, 17), bias=False, padding=(0, 8), groups=D*F1),
+            nn.Conv2d(D*F1, F2, (1, 1), bias=False),
+            nn.BatchNorm2d(F2),
+            nn.ELU(),
+            nn.AvgPool2d((1, pooling)),
+            nn.Dropout(do)
+        )
+
+    @property
+    def num_features_for_classification(self):
+        return self._num_features
+
+    def features_forward(self, x):
+        x = self.init_conv(x)
+        x = self.depth_conv(x)
+        return self.sep_conv(x).squeeze(-2)
