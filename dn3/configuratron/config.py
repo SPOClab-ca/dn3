@@ -440,8 +440,8 @@ class DatasetConfig:
         file_types = "Raw" if self._create_raw_recordings else "Epoched"
         if self.preload:
             file_types = "Preloaded " + file_types
-        print("Creating dataset of {} {} recordings from {} people.".format(sum(len(p) for p in mapping), file_types,
-                                                                            len(mapping)))
+        print("Creating dataset of {} {} recordings from {} people.".format(sum(len(mapping[p]) for p in mapping),
+                                                                            file_types, len(mapping)))
         description = "Loading {}".format(self.name)
         thinkers = dict()
         for t in tqdm.tqdm(mapping, desc=description, unit='person'):

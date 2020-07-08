@@ -1,6 +1,8 @@
 import mne
 import torch.nn as nn
 import unittest
+import io
+import sys
 
 from torch.utils.data import DataLoader
 from dn3.trainable.processes import StandardClassification
@@ -51,8 +53,16 @@ class TestSimpleClassifier(unittest.TestCase):
             with self.subTest("eval-mode"):
                 self.assertFalse(self.classifier.training)
 
+        captured = io.StringIO()
+        sys.stdout = captured
+
         train_log, eval_log = trainable.fit(loader, epochs=self._NUM_EPOCHS, step_callback=check_train_mode,
-                                            epoch_callback=check_eval_mode)
+                                            validation_dataset=loader, epoch_callback=check_eval_mode,
+                                            validation_interval=60)
+        sys.stdout = sys.__stdout__
+
+        with self.subTest("validation-interval"):
+            self.assertIn("Iteration 60 | ", captured.getvalue())
 
         self.assertEqual(len(train_log), self._NUM_EPOCHS * len(self.dataset) // self._BATCH_SIZE)
 
@@ -74,7 +84,6 @@ class TestSimpleClassifier(unittest.TestCase):
                                             epoch_callback=check_eval_mode)
 
         self.assertEqual(len(train_log), self._NUM_EPOCHS * len(self.dataset) // self._BATCH_SIZE)
-
 
     def test_EvaluationMetrics(self):
         trainable = StandardClassification(self.classifier, metrics=dict(AUROC=auroc))

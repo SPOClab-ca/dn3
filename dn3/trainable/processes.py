@@ -366,7 +366,8 @@ class BaseProcess(object):
         return DataLoader(dataset, **loader_kwargs)
 
     def fit(self, training_dataset, epochs=1, validation_dataset=None, step_callback=None,
-            epoch_callback=None, batch_size=8, warmup_frac=0.2, retain_best='loss', **loader_kwargs):
+            epoch_callback=None, batch_size=8, warmup_frac=0.2, retain_best='loss',
+            validation_interval=None, **loader_kwargs):
         """
         sklearn/keras-like convenience method to simply proceed with training across multiple epochs of the provided
         dataset
@@ -390,6 +391,8 @@ class BaseProcess(object):
                       **If `validation_dataset` is provided**, which model weights to retain. If 'loss' (default), will
                       retain the model at the epoch with the lowest validation loss. If another string, will assume that
                       is the metric to monitor for the *highest score*. If None, the final model is used.
+        validation_interval: int, None
+                             The number of batches between checking the validation dataset
         loader_kwargs :
                       Any remaining keyword arguments will be passed as such to any DataLoaders that are automatically
                       constructed. If both training and validation datasets are provided as `DataLoaders`, this will be
@@ -439,6 +442,16 @@ class BaseProcess(object):
                     except KeyError:
                         metrics[m] = new_metrics[m]
 
+        def _validation(epoch, iteration=None):
+            _metrics = self.evaluate(validation_dataset, **loader_kwargs)
+            if iteration is not None:
+                self.standard_logging(_metrics, "Epoch {} - Iteration {}".format(epoch, iteration))
+            else:
+                self.standard_logging(_metrics, "End of Epoch {}".format(epoch))
+            _metrics['epoch'] = epoch
+            validation_log.append(_metrics)
+            return _metrics
+
         epoch_bar = tqdm.trange(1, epochs+1, desc="Epoch", unit='epoch')
         for epoch in epoch_bar:
             pbar = tqdm.trange(1, len(training_dataset)+1, desc="Iteration", unit='batches')
@@ -457,13 +470,12 @@ class BaseProcess(object):
                 if callable(step_callback):
                     step_callback(train_metrics)
 
-            if validation_dataset is not None:
-                val_metrics = self.evaluate(validation_dataset, **loader_kwargs)
-                self.standard_logging(val_metrics, "End of Epoch {}".format(epoch))
-                best_model = self._retain_best(best_model, val_metrics, retain_best)
+                if isinstance(validation_interval, int) and iteration > 0 and (iteration % validation_interval == 0):
+                    _validation(epoch, iteration)
 
-                val_metrics['epoch'] = epoch
-                validation_log.append(val_metrics)
+            if validation_dataset is not None:
+                val_metrics = _validation(epoch)
+                best_model = self._retain_best(best_model, val_metrics, retain_best)
                 if callable(epoch_callback):
                     epoch_callback(val_metrics)
 
@@ -498,6 +510,9 @@ class StandardClassification(BaseProcess):
 
     @staticmethod
     def _simple_accuracy(inputs, outputs: torch.Tensor):
+        # average over last dimensions
+        while len(outputs.shape) >= 3:
+            outputs = outputs.mean(dim=-1)
         return (inputs[-1] == outputs.argmax(dim=-1)).float().mean().item()
 
     def forward(self, *inputs):
