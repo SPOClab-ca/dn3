@@ -367,7 +367,7 @@ class BaseProcess(object):
 
     def fit(self, training_dataset, epochs=1, validation_dataset=None, step_callback=None,
             epoch_callback=None, batch_size=8, warmup_frac=0.2, retain_best='loss',
-            validation_interval=None, **loader_kwargs):
+            validation_interval=None, train_log_interval=None, **loader_kwargs):
         """
         sklearn/keras-like convenience method to simply proceed with training across multiple epochs of the provided
         dataset
@@ -393,6 +393,9 @@ class BaseProcess(object):
                       is the metric to monitor for the *highest score*. If None, the final model is used.
         validation_interval: int, None
                              The number of batches between checking the validation dataset
+        train_log_interval: int, None
+                      The number of batches between persistent logging of training metrics, if None (default) happens
+                      at the end of every epoch.
         loader_kwargs :
                       Any remaining keyword arguments will be passed as such to any DataLoaders that are automatically
                       constructed. If both training and validation datasets are provided as `DataLoaders`, this will be
@@ -442,6 +445,12 @@ class BaseProcess(object):
                     except KeyError:
                         metrics[m] = new_metrics[m]
 
+        def print_training_metrics(epoch, iteration=None):
+            if iteration is not None:
+                self.standard_logging(metrics, "Training: Epoch {} - Iteration {}".format(epoch, iteration))
+            else:
+                self.standard_logging(metrics, "Training: End of Epoch {}".format(epoch))
+
         def _validation(epoch, iteration=None):
             _metrics = self.evaluate(validation_dataset, **loader_kwargs)
             if iteration is not None:
@@ -470,9 +479,13 @@ class BaseProcess(object):
                 if callable(step_callback):
                     step_callback(train_metrics)
 
+                if isinstance(train_log_interval, int) and iteration > 0 and (iteration % train_log_interval == 0):
+                    print_training_metrics(epoch, iteration=iteration)
+
                 if isinstance(validation_interval, int) and iteration > 0 and (iteration % validation_interval == 0):
                     _validation(epoch, iteration)
 
+            print_training_metrics(epoch)
             if validation_dataset is not None:
                 val_metrics = _validation(epoch)
                 best_model = self._retain_best(best_model, val_metrics, retain_best)
@@ -509,7 +522,9 @@ class StandardClassification(BaseProcess):
         self.best_metric = None
 
     @staticmethod
-    def _simple_accuracy(inputs, outputs: torch.Tensor):
+    def _simple_accuracy(inputs, outputs):
+        if isinstance(outputs, (list, tuple)):
+            outputs = outputs[0]
         # average over last dimensions
         while len(outputs.shape) >= 3:
             outputs = outputs.mean(dim=-1)

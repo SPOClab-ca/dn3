@@ -473,14 +473,16 @@ class Thinker(DN3ataset, ConcatDataset):
                     len(use_sessions)))
                 return training, validating, testing
 
-        remainder = self._make_like_me(use_sessions.keys())
-        if testing is None:
-            assert test_frac is not None and 0 < test_frac < 1
-            remainder, testing = rand_split(remainder, frac=test_frac)
-        if validating is None:
-            assert validation_frac is not None and 0 <= test_frac < 1
-            if validation_frac > 0:
-                validating, remainder = rand_split(remainder, frac=validation_frac)
+        # Split up the rest if there is anything left
+        if len(use_sessions) > 0:
+            remainder = self._make_like_me(use_sessions.keys())
+            if testing is None:
+                assert test_frac is not None and 0 < test_frac < 1
+                remainder, testing = rand_split(remainder, frac=test_frac)
+            if validating is None:
+                assert validation_frac is not None and 0 <= test_frac < 1
+                if validation_frac > 0:
+                    validating, remainder = rand_split(remainder, frac=validation_frac)
 
         training = remainder if training is None else training
 
