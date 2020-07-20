@@ -177,6 +177,8 @@ def map_named_channels_deep_1010(channel_names: list, EOG=None, ear_ref=None, ex
 
     if isinstance(EOG, str):
         EOG = [EOG] * 4
+    elif len(EOG) == 1:
+        EOG = EOG * 4
     elif EOG is None or len(EOG) == 0:
         EOG = []
     elif len(EOG) == 2:
