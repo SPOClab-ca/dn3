@@ -38,6 +38,12 @@ class _DumbNamespace:
                 d[k] = [_DumbNamespace(d[k][i]) if isinstance(d[k][i], dict) else d[k][i] for i in range(len(d[k]))]
         self.__dict__.update(d)
 
+    def keys(self):
+        return list(self.__dict__.keys())
+
+    def __getitem__(self, item):
+        return self.__dict__[item]
+
 
 def _adopt_auxiliaries(obj, remaining):
     def namespaceify(v):

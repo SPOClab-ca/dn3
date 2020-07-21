@@ -307,7 +307,7 @@ class BaseProcess(object):
             if 'acc' in m.lower() or 'pct' in m.lower():
                 start_message += " {}: {:.2%} |".format(m, metrics[m])
             else:
-                start_message += " {}: {:.2f} |".format(m, metrics[m])
+                start_message += " {}: {:.3f} |".format(m, metrics[m])
         tqdm.tqdm.write(start_message)
 
     def save_best(self):
@@ -433,6 +433,7 @@ class BaseProcess(object):
         self.best_metric = None
         best_model = self.save_best()
 
+        train_log_interval = len(training_dataset) if train_log_interval is None else train_log_interval
         metrics = OrderedDict()
 
         def update_metrics(new_metrics: dict, iterations):
@@ -479,13 +480,17 @@ class BaseProcess(object):
                 if callable(step_callback):
                     step_callback(train_metrics)
 
-                if isinstance(train_log_interval, int) and iteration > 0 and (iteration % train_log_interval == 0):
-                    print_training_metrics(epoch, iteration=iteration)
+                if iteration % train_log_interval == 0:
+                    print_training_metrics(epoch, iteration)
+                    metrics = OrderedDict()
 
-                if isinstance(validation_interval, int) and iteration > 0 and (iteration % validation_interval == 0):
+                if isinstance(validation_interval, int) and (iteration % validation_interval == 0)\
+                        and validation_dataset is not None:
                     _validation(epoch, iteration)
 
             print_training_metrics(epoch)
+            metrics = OrderedDict()
+
             if validation_dataset is not None:
                 val_metrics = _validation(epoch)
                 best_model = self._retain_best(best_model, val_metrics, retain_best)
