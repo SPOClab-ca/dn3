@@ -4,6 +4,7 @@ import tqdm
 import mne.io as loader
 import numpy as np
 
+from parse import search
 from fnmatch import fnmatch
 from pathlib import Path
 from collections import OrderedDict
@@ -153,6 +154,9 @@ class DatasetConfig:
 
         # Epoching relevant options
         # self.tlen = get_pop('tlen')
+        self.name_format = get_pop('name_format')
+        if self.name_format is not None and '{subject}' not in self.name_format:
+            raise DN3ConfigException("Name format must at least include {subject}!")
         self.tmin = get_pop('tmin')
         self._create_raw_recordings = self.tmin is None
         self.picks = get_pop('picks')
@@ -171,6 +175,7 @@ class DatasetConfig:
             elif isinstance(self.events, list):
                 self.events = dict(zip(self.events, range(len(self.events))))
             self.events = OrderedDict(self.events)
+        self.chunk_duration = get_pop('chunk_duration')
         self.rename_channels = get_pop('rename_channels', dict())
         if not isinstance(self.rename_channels, dict):
             raise DN3ConfigException("Renamed channels must map new values to old values.")
@@ -298,12 +303,19 @@ class DatasetConfig:
             if self._exclude_file(sess_file):
                 self._excluded_sessions.append(sess_file)
                 continue
-            person = sess_file.parent.name
+            if self.name_format is None:
+                person = sess_file.parent.name
+            else:
+                person = search(self.name_format, sess_file.name)
+                if person is None:
+                    raise DN3ConfigException("Could not find person in {} using {}.".format(sess_file.name,
+                                                                                            self.name_format))
+                person = person[0]
             if True not in [fnmatch(person, pattern) for pattern in self.exclude_people]:
                 if person in mapping:
-                    mapping[person].append(str(sess_file))
+                    mapping[person].append(sess_file.name)
                 else:
-                    mapping[person] = [str(sess_file)]
+                    mapping[person] = [sess_file.name]
             else:
                 self._excluded_people.append(person)
         return mapping
@@ -373,7 +385,7 @@ class DatasetConfig:
             use_annotations = self.events is not None and True in [isinstance(x, str) for x in self.events.keys()]
             epochs = make_epochs_from_raw(raw, self.tmin, tlen, event_ids=self.events, baseline=self.baseline,
                                           decim=self.decimate, filter_bp=self.bandpass, drop_bad=self.drop_bad,
-                                          use_annotations=use_annotations)
+                                          use_annotations=use_annotations, chunk_duration=self.chunk_duration)
 
             self._unique_events = self._unique_events.union(set(np.unique(epochs.events[:, -1])))
             recording = EpochTorchRecording(epochs, ch_ind_picks=picks, event_mapping=self.events)

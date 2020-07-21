@@ -19,41 +19,51 @@ follow) the relatively generic directory structure of session instances nested i
 person, simply provided the top-level of this directory structure, a DN3 :any:`Dataset` can be rapidly constructed, with
 easily adjustable *configuration* options.
 
+Alternatively, if your dataset is all lumped into one folder, but follows a naming convention where the subject's name
+and the session id are embedded in a consistent naming format, e.g. `My-Data-S01-R0.edf` and `My-Data-S02-R1.edf`, two
+consistently formatted strings with two subjects (S01 and S02) and two runs (R0 and R1 - note that either subjects or
+runs could also have been the same string and remained valid). In this case, you can use a (very *pythonic*) formatter
+to organize the data hierarchically: `name_format: "My-Data-{subject}-{session}"`
+
 A Little More Specific
 ======================
 Say we were evaluating a neural network architecture with some of our
 own data. We are happy with how it is currently working, but want to now evaluate it against a public dataset to
 compare with other work. Most of the time, this means writing a decent bit of code to load this new dataset. Instead,
 DN3 proposes that if it is in a consistent directory structure, and uses a known (you can also specify your own custom
-written file loader) file format, it should be as simple as:
+written file loader *coming soon*) file format, it should be as simple as:
 
 .. code-block:: yaml
 
    public_dataset:
      toplevel: /path/to/the/files
 
-As far as the real *configuration* aspect, perhaps this dataset has a unique time window for its trials? In that case:
+As far as the real *configuration* aspect, perhaps this dataset has a unique time window for its trials? Is the dataset
+organized using filenames like the above "My-Data" example rather than directories? In that case:
 
 .. code-block:: yaml
 
    public_dataset:
      toplevel: /path/to/the/files
+     name_format: "My-Data-{subject}-{session}"
      tmin: -0.1
      tlen: 1.5
 
-Want to bandpass filter the data between 0.1Hz and 40Hz before use?
+Want to bandpass filter this data between 0.1Hz and 40Hz before use?
 
 .. code-block:: yaml
 
    public_dataset:
      toplevel: /path/to/the/files
+     name_format: "My-Data-{subject}-{session}"
      tmin: -0.1
      tlen: 1.5
      hpf: 0.1
      lpf: 40
 
 
-Hopefully this illustrates the advantage of organizing datasets in this way.
+Hopefully this illustrates the advantage of organized datasets and configuration files, no boilerplate needed, you'll
+get nicely prepared and consistent dataset abstractions (see :ref:`dataset_guide`).
 
 A Concrete Example
 ==================
@@ -120,8 +130,8 @@ architecture configurations (potentially backed by your favourite cloud-based hy
 More directives might be added to the configuratron in the future, and we warmly welcome any suggestions/implementations
 others may come up with.
 
-Complete listing of configuratron options
-=========================================
+Complete listing of configuratron (experiment level) options
+============================================================
 
 Optional entries
 ----------------
@@ -158,8 +168,16 @@ toplevel *(required, directory)*
 
 Special entries
 ---------------
-These entries are superseded by the `Configuratron` entry *samples*, which defines a global number of samples parameter.
-If this is not the case, **one of the following two is required**.
+**name_format** *(str)*
+  The special entry will assume that after scanning for all the correct *type* of file, the *subject* and *session*
+  (or in DN3-speak, the *Thinker* and *Recording*) name can be parsed from the filename, where the filename is otherwise
+  static. This should be a string with two required substrings: *{subject}* and *{session}*. These should be wherever
+  this information can be read from the static string (you can get away with strings that are not strictly static, as
+  long as the context around the parsed sections). Note, the file extension should not be included, and fixed length can
+  be specified by trailing *:N* for length *N*, e.g. *{subject:2}* for specifically 2 characters devoted to subject ID.
+
+The next few entries are superseded by the `Configuratron` entry *samples*, which defines a global number of samples
+parameter. If this is not the case, **one of the following two is required**.
 
 **tlen** *(required, float)*
   The length of time to use for each retrieved datapoint. If *epoched* trials (see :any:`EpochTorchRecording`) are
@@ -210,6 +228,11 @@ events *(list, map/dict)*
 
 targets *(int)*
   The number of targets to classify if there are events. This is inferred otherwise.
+
+chunk_duration *(float)*
+  If specified, rather than using event offsets, create events every chunk_duration seconds, and then still use **tlen**
+  and **tmin** with respect to these events. *This works with annotated recordings, and not recordings that rely on
+  `stim` channels*.
 
 picks *(list)*
   This option can take two forms:

@@ -43,7 +43,7 @@ def min_max_normalize(x: torch.Tensor, low=-1, high=1):
 
 
 def make_epochs_from_raw(raw: mne.io.Raw, tmin, tlen, event_ids=None, baseline=None, decim=1, filter_bp=None,
-                         drop_bad=False, use_annotations=False):
+                         drop_bad=False, use_annotations=False, chunk_duration=None):
     sfreq = raw.info['sfreq']
     if filter_bp is not None:
         if isinstance(filter_bp, (list, tuple)) and len(filter_bp) == 2:
@@ -54,7 +54,7 @@ def make_epochs_from_raw(raw: mne.io.Raw, tmin, tlen, event_ids=None, baseline=N
 
     try:
         if use_annotations:
-            events = mne.events_from_annotations(raw, event_id=event_ids)[0]
+            events = mne.events_from_annotations(raw, event_id=event_ids, chunk_duration=chunk_duration)[0]
         else:
             events = mne.find_events(raw)
     except ValueError as e:
