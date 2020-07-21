@@ -35,3 +35,9 @@ def auroc(inputs, outputs):
     y_p = _binarize_two_class(_handle_cropped(outputs.detach().cpu().numpy()))
     y_t = inputs[-1].detach().cpu().numpy()
     return skmetrics.roc_auc_score(y_t, y_p)
+
+
+def balanced_accuracy(inputs, outputs):
+    y_p = _binarize_two_class(_handle_cropped(outputs.detach().cpu().numpy()))
+    y_t = inputs[-1].detach().cpu().numpy()
+    return skmetrics.balanced_accuracy_score(y_t, y_p)

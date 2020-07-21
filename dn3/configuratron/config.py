@@ -8,7 +8,7 @@ from parse import search
 from fnmatch import fnmatch
 from pathlib import Path
 from collections import OrderedDict
-from mne import pick_types
+from mne import pick_types, read_annotations
 
 from dn3.data.dataset import Dataset, RawTorchRecording, EpochTorchRecording, Thinker, DatasetInfo
 from dn3.utils import make_epochs_from_raw, DN3ConfigException
@@ -160,9 +160,10 @@ class DatasetConfig:
 
         # Epoching relevant options
         # self.tlen = get_pop('tlen')
-        self.name_format = get_pop('name_format')
-        if self.name_format is not None and not fnmatch(self.name_format, '{subject*}'):
+        self.filename_format = get_pop('filename_format')
+        if self.filename_format is not None and not fnmatch(self.filename_format, '*{subject*}*'):
             raise DN3ConfigException("Name format must at least include {subject}!")
+        self.annotation_format = get_pop('annotation_format')
         self.tmin = get_pop('tmin')
         self._create_raw_recordings = self.tmin is None
         self.picks = get_pop('picks')
@@ -279,7 +280,14 @@ class DatasetConfig:
         return files
 
     def _exclude_file(self, f: Path):
-        for exclusion_pattern in self.exclude_sessions:
+        exclusions = self.exclude_sessions.copy()
+        if self.annotation_format is not None:
+            # Some hacks over here, but it will do
+            patt = self.annotation_format.format(subject='**', session='*')
+            patt = patt.replace('**', '*')
+            patt = patt.replace('**', '*')
+            exclusions.append(patt)
+        for exclusion_pattern in exclusions:
             for version in (f.stem, f.name):
                 if fnmatch(version, exclusion_pattern):
                     return True
@@ -309,14 +317,14 @@ class DatasetConfig:
             if self._exclude_file(sess_file):
                 self._excluded_sessions.append(sess_file)
                 continue
-            if self.name_format is None:
+            if self.filename_format is None:
                 person = sess_file.parent.name
             else:
-                person = search(self.name_format, sess_file.name)
+                person = search(self.filename_format, sess_file.name)
                 if person is None:
                     raise DN3ConfigException("Could not find person in {} using {}.".format(sess_file.name,
-                                                                                            self.name_format))
-                person = person[0]
+                                                                                            self.filename_format))
+                person = person['subject']
             if True not in [fnmatch(person, pattern) for pattern in self.exclude_people]:
                 if person in mapping:
                     mapping[person].append(str(sess_file))
@@ -344,7 +352,7 @@ class DatasetConfig:
 
         raise DN3ConfigException("No supported/provided loader found for {}".format(str(path)))
 
-    def _construct_session_from_config(self, session):
+    def _construct_session_from_config(self, session, sess_id, thinker_id):
         if not isinstance(session, Path):
             session = Path(session)
 
@@ -389,6 +397,13 @@ class DatasetConfig:
             recording = RawTorchRecording(raw, tlen, stride=self.stride, decimate=self.decimate, ch_ind_picks=picks)
         else:
             use_annotations = self.events is not None and True in [isinstance(x, str) for x in self.events.keys()]
+            if use_annotations and self.annotation_format is not None:
+                patt = self.annotation_format.format(subject=thinker_id, session=sess_id)
+                ann = [str(f) for f in session.parent.glob(patt)]
+                if len(ann) > 0:
+                    if len(ann) > 1:
+                        print("More than one annotation found for {}. Falling back to {}".format(patt, ann[0]))
+                    raw.set_annotations(read_annotations(ann[0]))
             epochs = make_epochs_from_raw(raw, self.tmin, tlen, event_ids=self.events, baseline=self.baseline,
                                           decim=self.decimate, filter_bp=self.bandpass, drop_bad=self.drop_bad,
                                           use_annotations=use_annotations, chunk_duration=self.chunk_duration)
@@ -416,11 +431,16 @@ class DatasetConfig:
 
         return recording
 
-    def _construct_thinker_from_config(self, thinker: list):
+    def _construct_thinker_from_config(self, thinker: list, thinker_id):
         sessions = dict()
-        for sess_name in thinker:
+        for sess in thinker:
+            sess = Path(sess)
+            if self.filename_format is not None and fnmatch(self.filename_format, "*{session*}*"):
+                sess_name = search(self.filename_format, sess.name)['session']
+            else:
+                sess_name = sess.name
             try:
-                sessions[Path(sess_name).name] = self._construct_session_from_config(sess_name)
+                sessions[sess_name] = self._construct_session_from_config(sess, sess_name, thinker_id)
             except DN3ConfigException as e:
                 tqdm.tqdm.write("Skipping {}. Exception: {}.".format(sess_name, e.args))
         if len(sessions) == 0:
@@ -464,7 +484,7 @@ class DatasetConfig:
         thinkers = dict()
         for t in tqdm.tqdm(mapping, desc=description, unit='person'):
             try:
-                thinkers[t] = self._construct_thinker_from_config(mapping[t])
+                thinkers[t] = self._construct_thinker_from_config(mapping[t], t)
             except DN3ConfigException:
                 tqdm.tqdm.write("None of the sessions for {} were usable. Skipping...".format(t))
 

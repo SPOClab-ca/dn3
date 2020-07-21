@@ -23,7 +23,7 @@ Alternatively, if your dataset is all lumped into one folder, but follows a nami
 and the session id are embedded in a consistent naming format, e.g. `My-Data-S01-R0.edf` and `My-Data-S02-R1.edf`, two
 consistently formatted strings with two subjects (S01 and S02) and two runs (R0 and R1 - note that either subjects or
 runs could also have been the same string and remained valid). In this case, you can use a (very *pythonic*) formatter
-to organize the data hierarchically: `name_format: "My-Data-{subject}-{session}"`
+to organize the data hierarchically: `filename_format: "My-Data-{subject}-{session}"`
 
 A Little More Specific
 ======================
@@ -45,7 +45,7 @@ organized using filenames like the above "My-Data" example rather than directori
 
    public_dataset:
      toplevel: /path/to/the/files
-     name_format: "My-Data-{subject}-{session}"
+     filename_format: "My-Data-{subject}-{session}"
      tmin: -0.1
      tlen: 1.5
 
@@ -55,7 +55,7 @@ Want to bandpass filter this data between 0.1Hz and 40Hz before use?
 
    public_dataset:
      toplevel: /path/to/the/files
-     name_format: "My-Data-{subject}-{session}"
+     filename_format: "My-Data-{subject}-{session}"
      tmin: -0.1
      tlen: 1.5
      hpf: 0.1
@@ -168,7 +168,7 @@ toplevel *(required, directory)*
 
 Special entries
 ---------------
-**name_format** *(str)*
+**filename_format** *(str)*
   The special entry will assume that after scanning for all the correct *type* of file, the *subject* and *session*
   (or in DN3-speak, the *Thinker* and *Recording*) name can be parsed from the filename, where the filename is otherwise
   static. This should be a string with two required substrings: *{subject}* and *{session}*. These should be wherever
@@ -225,6 +225,13 @@ events *(list, map/dict)*
 
   If the reasoning for the above is not clear, not to worry. Just know you can't assume that annotated event 1 is label
   1. Instead use :meth:`EpochTorchRecording.get_mapping` to resolve labels to the original annotations or event codes.
+
+annotation_format *(str)*
+  In some cases, annotations may be provided as *separate* (commonly edf) files. This string should specify how to match
+  the annotation file, optionally using the subject and session ids. This uses standard unix-style pattern matching,
+  augmented with the ability to specify the subject with *{subject(:...)}* and the session with *{session(:...)}* as
+  is used by filename_format. So one could use a pattern like: *"Data-*-{subject}-annotation"*. **Note, now by default,
+  any file matching the annotation pattern is also excluded from being loaded as raw data.**
 
 targets *(int)*
   The number of targets to classify if there are events. This is inferred otherwise.
