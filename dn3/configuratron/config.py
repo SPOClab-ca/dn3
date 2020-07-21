@@ -161,7 +161,7 @@ class DatasetConfig:
         # Epoching relevant options
         # self.tlen = get_pop('tlen')
         self.name_format = get_pop('name_format')
-        if self.name_format is not None and '{subject}' not in self.name_format:
+        if self.name_format is not None and not fnmatch(self.name_format, '{subject*}'):
             raise DN3ConfigException("Name format must at least include {subject}!")
         self.tmin = get_pop('tmin')
         self._create_raw_recordings = self.tmin is None
@@ -319,9 +319,9 @@ class DatasetConfig:
                 person = person[0]
             if True not in [fnmatch(person, pattern) for pattern in self.exclude_people]:
                 if person in mapping:
-                    mapping[person].append(sess_file.name)
+                    mapping[person].append(str(sess_file))
                 else:
-                    mapping[person] = [sess_file.name]
+                    mapping[person] = [str(sess_file)]
             else:
                 self._excluded_people.append(person)
         return mapping
