@@ -317,7 +317,8 @@ class Thinker(DN3ataset, ConcatDataset):
     Collects multiple recordings of the same person, intended to be of the same task, at different times or conditions.
     """
 
-    def __init__(self, sessions, person_id="auto", return_session_id=False, propagate_kwargs=False):
+    def __init__(self, sessions, person_id="auto", return_session_id=False, return_trial_id=False,
+                 propagate_kwargs=False):
         """
         Collects multiple recordings of the same person, intended to be of the same task, at different times or
         conditions.
@@ -355,6 +356,7 @@ class Thinker(DN3ataset, ConcatDataset):
 
         self._reset_dataset()
         self.return_session_id = return_session_id
+        self.return_trial_id = return_trial_id
 
     def _reset_dataset(self):
         for _id in self.sessions:
@@ -411,10 +413,13 @@ class Thinker(DN3ataset, ConcatDataset):
         self._reset_dataset()
 
     def __getitem__(self, item, return_id=False):
-        x = ConcatDataset.__getitem__(self, item)
+        x = list(ConcatDataset.__getitem__(self, item))
+        session_idx = bisect.bisect_right(self.cumulative_sizes, item)
+        if self.return_trial_id:
+            trial_id = item if session_idx == 0 else item - self.cumulative_sizes[session_idx-1]
+            x.insert(1, torch.tensor(trial_id).long())
         if self.return_session_id:
-            session_idx = torch.tensor(bisect.bisect_right(self.cumulative_sizes, item))
-            return self._execute_transforms(x[0], session_idx, *x[1:])
+            x.insert(1, torch.tensor(session_idx).long())
         return self._execute_transforms(*x)
 
     def __len__(self):
@@ -558,8 +563,8 @@ class Dataset(DN3ataset, ConcatDataset):
       - annotation paradigm:
         - consistent event types
     """
-    def __init__(self, thinkers, dataset_id=None, task_id=None, return_session_id=False, return_person_id=False,
-                 return_dataset_id=False, return_task_id=False, dataset_info=None):
+    def __init__(self, thinkers, dataset_id=None, task_id=None, return_trial_id=False, return_session_id=False,
+                 return_person_id=False, return_dataset_id=False, return_task_id=False, dataset_info=None):
         """
         Collects recordings from multiple people, intended to be of the same task, at different times or
         conditions.
@@ -594,6 +599,8 @@ class Dataset(DN3ataset, ConcatDataset):
                            Whether to return the dataset_id with the data itself.
         return_task_id : bool
                            Whether to return the dataset_id with the data itself.
+        return_trial_id: bool
+                        Whether to return the id of the trial (within the session)
         dataset_info : DatasetInfo, Optional
                        Additional, non-critical data that helps specify additional features of the dataset.
 
@@ -604,7 +611,7 @@ class Dataset(DN3ataset, ConcatDataset):
         raw_data, task_id, dataset_id, person_id, session_id, *label
         """
         super().__init__()
-        self.update_id_returns(return_session_id, return_person_id, return_dataset_id, return_task_id)
+        self.update_id_returns(return_trial_id, return_session_id, return_person_id, return_dataset_id, return_task_id)
         self.info = dataset_info
 
         if not isinstance(thinkers, Iterable):
@@ -622,12 +629,14 @@ class Dataset(DN3ataset, ConcatDataset):
         self.dataset_id = torch.tensor(dataset_id).long() if dataset_id is not None else None
         self.task_id = torch.tensor(task_id).long() if task_id is not None else None
 
-    def update_id_returns(self, session=None, person=None, task=None, dataset=None):
+    def update_id_returns(self, trial=None, session=None, person=None, task=None, dataset=None):
         """
         Updates which ids are to be returned by the dataset. If any argument is `None` it preserves the previous value.
 
         Parameters
         ----------
+        trial : None, bool
+                  Whether to return trial ids.
         session : None, bool
                   Whether to return session ids.
         person : None, bool
@@ -637,8 +646,9 @@ class Dataset(DN3ataset, ConcatDataset):
         dataset : None, bool
                  Whether to return dataset ids.
         """
-        self.return_person_id = self.return_person_id if person is None else person
+        self.return_trial_id = self.return_trial_id if trial is None else trial
         self.return_session_id = self.return_session_id if session is None else session
+        self.return_person_id = self.return_person_id if person is None else person
         self.return_dataset_id = self.return_dataset_id if dataset is None else dataset
         self.return_task_id = self.return_task_id if task is None else task
 
@@ -660,10 +670,12 @@ class Dataset(DN3ataset, ConcatDataset):
             format(ds_name, self.dataset_id, len(self.get_thinkers()), len(self), len(self.channels),
                    self.sequence_length, self.sfreq, len(self._transforms))
 
-    def __add__(self, thinker, person_id=None, return_session_id=None):
+    def __add__(self, thinker, person_id=None, return_session_id=None, return_trial_id=None):
         assert isinstance(thinker, Thinker)
         return_session_id = self.return_session_id if return_session_id is None else return_session_id
+        return_trial_id = self.return_trial_id if return_trial_id is None else return_trial_id
         thinker.return_session_id = return_session_id
+        thinker.return_trial_id = return_trial_id
         if person_id is not None:
             thinker.person_id = person_id
 

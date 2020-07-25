@@ -85,14 +85,15 @@ class TestDatasetDummyData(unittest.TestCase):
     def setUp(self) -> None:
         mne.set_log_level(False)
         self.dataset = create_dummy_dataset(dataset_id=self._DATASET_ID, task_id=self._TASK_ID, return_person_id=True,
-                                            return_session_id=True, return_dataset_id=True, return_task_id=True)
+                                            return_session_id=True, return_dataset_id=True, return_task_id=True,
+                                            return_trial_id=True)
 
     def test_MakeDataset(self):
         self.assertEqual(len(self.dataset), len(EVENTS) * 2 * THINKERS_IN_DATASETS)
 
     def test_DatasetGet(self):
         sess_count, person_count = -1, -1
-        for i, (x, task_id, ds_id, person_id, sess_id, y) in enumerate(self.dataset):
+        for i, (x, task_id, ds_id, person_id, sess_id, trial_id, y) in enumerate(self.dataset):
             with self.subTest(i=i):
                 if i % len(EVENTS) == 0:
                     sess_count = (sess_count + 1) % NUM_SESSIONS_PER_THINKER
@@ -102,6 +103,7 @@ class TestDatasetDummyData(unittest.TestCase):
                 self.assertEqual(person_id, person_count)
                 self.assertEqual(ds_id, self._DATASET_ID)
                 self.assertEqual(task_id, self._TASK_ID)
+                self.assertEqual(trial_id, i % len(EVENTS))
                 self.assertTrue(check_epoch_against_data(x, i % len(EVENTS)))
                 self.assertEqual(torch.tensor(EVENTS[i % len(EVENTS)][1])-1, y)
 

@@ -146,7 +146,8 @@ deep1010 *(bool)*
   is on by default.
 
 samples *(int)*
-  Providing samples
+  Providing samples will enforce a global (common) length across all datasets (probably want to use this in conjunction
+  with the *sfreq* option below).
 
 sfreq *(float)*
   Enforce a global sampling frequency, down or upsampling loaded sessions if necessary. If a session cannot be
@@ -156,6 +157,10 @@ sfreq *(float)*
 preload *(bool)*
   Whether to preload recordings for all datasets. *This is overridden by individual `preload` options
   for dataset configurations.
+
+trial_ids *(bool)*
+  Whether to return an id (*long tensor*) for which trial *within each recording* each data sequence returned by the
+  constructed dataset.
 
 Complete listing of dataset configuration fields
 ================================================

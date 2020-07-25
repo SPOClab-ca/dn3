@@ -92,6 +92,7 @@ class ExperimentConfig:
             self._make_deep1010 = dict()
             self.global_samples = None
             self.global_sfreq = None
+            return_trial_ids = False
             preload = False
         else:
             # If not None, will be used
@@ -102,6 +103,7 @@ class ExperimentConfig:
             self.global_sfreq = self.experiment.get('sfreq', None)
             usable_datasets = self.experiment.get('use_only', usable_datasets)
             preload = self.experiment.get('preload', False)
+            return_trial_ids = self.experiment.get('trial_ids', False)
 
         self.datasets = dict()
         for i, name in enumerate(usable_datasets):
@@ -123,7 +125,7 @@ class DatasetConfig:
     Parses dataset entries in DN3 config
     """
     def __init__(self, name: str, config: dict, adopt_auxiliaries=True, ext_handlers=None, deep1010=True,
-                 samples=None, sfreq=None, preload=False):
+                 samples=None, sfreq=None, preload=False, return_trial_ids=False):
         """
         Parses dataset entries in DN3 config
         Parameters
@@ -149,6 +151,8 @@ class DatasetConfig:
         preload: bool
                  Whether to preload recordings when creating datasets from the configuration. Can also be specified with
                  `preload` configuratron entry.
+        return_trial_ids: bool
+                 Whether to construct recordings that return trial ids.
 
         """
         self._original_config = dict(config).copy()
@@ -210,6 +214,7 @@ class DatasetConfig:
         self._different_deep1010s = list()
         self._targets = get_pop('targets', None)
         self._unique_events = set()
+        self.return_trial_ids = return_trial_ids
 
         self._samples = get_pop('samples', samples)
         self._sfreq = sfreq
@@ -491,6 +496,7 @@ class DatasetConfig:
         info = DatasetInfo(self.name, self.data_max, self.data_min, self._excluded_people, self._excluded_sessions,
                            targets=self._targets if self._targets is not None else len(self._unique_events))
         dsargs.setdefault('dataset_info', info)
+        dsargs.setdefault('return_trial_id', self.return_trial_ids)
         dataset = Dataset(thinkers, **dsargs)
         print(dataset)
         if self.deep1010 is not None:
