@@ -7,7 +7,7 @@ import sys
 from torch.utils.data import DataLoader
 from dn3.trainable.processes import StandardClassification
 from dn3.trainable.models import EEGNetStrided
-from dn3.metrics.base import auroc
+from dn3.metrics.base import balanced_accuracy
 from tests.dummy_data import create_dummy_dataset, retrieve_underlying_dummy_data, EVENTS
 
 
@@ -86,9 +86,9 @@ class TestSimpleClassifier(unittest.TestCase):
         self.assertEqual(len(train_log), self._NUM_EPOCHS * len(self.dataset) // self._BATCH_SIZE)
 
     def test_EvaluationMetrics(self):
-        trainable = StandardClassification(self.classifier, metrics=dict(AUROC=auroc))
+        trainable = StandardClassification(self.classifier, metrics=dict(BAC=balanced_accuracy))
         val_metrics = trainable.evaluate(self.dataset)
-        self.assertIn('AUROC', val_metrics)
+        self.assertIn('BAC', val_metrics)
         self.assertIn('loss', val_metrics)
 
 

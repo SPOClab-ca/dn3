@@ -537,9 +537,9 @@ class StandardClassification(BaseProcess):
 
     def forward(self, *inputs):
         if isinstance(self.classifier, Classifier) and self.classifier.return_features:
-            prediction, _ = self.classifier(inputs[0])
+            prediction, _ = self.classifier(*inputs[:-1])
         else:
-            prediction = self.classifier(inputs[0])
+            prediction = self.classifier(*inputs[:-1])
         return prediction
 
     def calculate_loss(self, inputs, outputs):
