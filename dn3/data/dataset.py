@@ -802,9 +802,10 @@ class Dataset(DN3ataset, ConcatDataset):
             dataset_id = self.dataset_id.item() if self.dataset_id is not None else None
             task_id = self.task_id.item() if self.dataset_id is not None else None
 
-            like_me = Dataset({p: self.thinkers[p] for p in people}, dataset_id, task_id, self.return_person_id,
-                              self.return_session_id, self.return_dataset_id, self.return_task_id,
-                              dataset_info=self.info)
+            like_me = Dataset({p: self.thinkers[p] for p in people}, dataset_id, task_id,
+                              return_person_id=self.return_person_id, return_session_id=self.return_session_id,
+                              return_dataset_id=self.return_dataset_id, return_task_id=self.return_task_id,
+                              return_trial_id=self.return_trial_id, dataset_info=self.info)
         for x in self._transforms:
             like_me.add_transform(x)
         return like_me
