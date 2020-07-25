@@ -217,11 +217,11 @@ class MappingDeep1010(BaseTransform):
         self.return_mask = return_mask
 
     def __call__(self, x):
-        x = (x.transpose(1, 0) @ self.mapping).transpose(1, 0)
-
         if self.max_scale is not None:
             scale = 2 * (torch.clamp_max((x.max() - x.min()) / self.max_scale, 1.0) - 0.5)
         x = min_max_normalize(x)
+
+        x = (x.transpose(1, 0) @ self.mapping).transpose(1, 0)
         x[SCALE_IND, :] = 0 if self.max_scale is None else scale
 
         if self.return_mask:

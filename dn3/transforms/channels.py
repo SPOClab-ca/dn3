@@ -46,6 +46,7 @@ DEEP_1010_CHS_LISTING = [
     # Extra
     *["EX{}".format(n) for n in range(1, _EXTRA_CHANNELS+1)]
 ]
+EEG_INDS = list(range(0, DEEP_1010_CHS_LISTING.index('VEOGL')+1))
 EOG_INDS = [DEEP_1010_CHS_LISTING.index(ch) for ch in ["VEOGL", "VEOGR", "HEOGL", "HEOGR"]]
 REF_INDS = [DEEP_1010_CHS_LISTING.index(ch) for ch in ["A1", "A2", "REF"]]
 EXTRA_INDS = list(range(len(DEEP_1010_CHS_LISTING) - _EXTRA_CHANNELS, len(DEEP_1010_CHS_LISTING)))

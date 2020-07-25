@@ -47,6 +47,6 @@ def auroc(inputs, outputs):
 
 def balanced_accuracy(inputs, outputs):
     outputs = _get_prediction(outputs)
-    y_p = _handle_cropped(outputs.detach().cpu().numpy())
+    y_p = _handle_cropped(outputs.detach().cpu().numpy()).argmax(axis=-1)
     y_t = inputs[-1].detach().cpu().numpy()
     return skmetrics.balanced_accuracy_score(y_t, y_p)

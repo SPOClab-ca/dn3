@@ -614,7 +614,7 @@ class Dataset(DN3ataset, ConcatDataset):
         if not isinstance(thinkers, dict):
             thinkers = {t.person_id: t for t in thinkers}
 
-        self._thinkers = OrderedDict()
+        self.thinkers = OrderedDict()
         for t in sorted(thinkers.keys()):
             self.__add__(thinkers[t], person_id=t, return_session_id=return_session_id)
         self._reset_dataset()
@@ -643,15 +643,15 @@ class Dataset(DN3ataset, ConcatDataset):
         self.return_task_id = self.return_task_id if task is None else task
 
     def _reset_dataset(self):
-        for p_id in self._thinkers:
-            self._thinkers[p_id].person_id = p_id
-            for s_id in self._thinkers[p_id].sessions:
-                self._thinkers[p_id].sessions[s_id].session_id = s_id
-                self._thinkers[p_id].sessions[s_id].person_id = p_id
-        ConcatDataset.__init__(self, self._thinkers.values())
+        for p_id in self.thinkers:
+            self.thinkers[p_id].person_id = p_id
+            for s_id in self.thinkers[p_id].sessions:
+                self.thinkers[p_id].sessions[s_id].session_id = s_id
+                self.thinkers[p_id].sessions[s_id].person_id = p_id
+        ConcatDataset.__init__(self, self.thinkers.values())
 
     def _apply(self, lam_fn):
-        for th_id, thinker in self._thinkers.items():
+        for th_id, thinker in self.thinkers.items():
             lam_fn(th_id, thinker)
 
     def __str__(self):
@@ -667,11 +667,11 @@ class Dataset(DN3ataset, ConcatDataset):
         if person_id is not None:
             thinker.person_id = person_id
 
-        if thinker.person_id in self._thinkers.keys():
+        if thinker.person_id in self.thinkers.keys():
             print("Warning. Person {} already in dataset... Merging sessions.".format(thinker.person_id))
-            self._thinkers[thinker.person_id] += thinker
+            self.thinkers[thinker.person_id] += thinker
         else:
-            self._thinkers[thinker.person_id] = thinker
+            self.thinkers[thinker.person_id] = thinker
         self._reset_dataset()
 
     def __getitem__(self, item):
@@ -680,7 +680,7 @@ class Dataset(DN3ataset, ConcatDataset):
             sample_idx = item
         else:
             sample_idx = item - self.cumulative_sizes[person_id - 1]
-        x = list(self._thinkers[self.get_thinkers()[person_id]].__getitem__(sample_idx))
+        x = list(self.thinkers[self.get_thinkers()[person_id]].__getitem__(sample_idx))
 
         if self.return_person_id:
             x.insert(1, torch.tensor(person_id).long())
@@ -723,7 +723,7 @@ class Dataset(DN3ataset, ConcatDataset):
 
     @property
     def sfreq(self):
-        sfreq = set(self._thinkers[t].sfreq for t in self._thinkers)
+        sfreq = set(self.thinkers[t].sfreq for t in self.thinkers)
         if len(sfreq) > 1:
             print("Warning: Multiple sampling frequency values found. Over/re-sampling may be necessary.")
             return unfurl(sfreq)
@@ -734,7 +734,7 @@ class Dataset(DN3ataset, ConcatDataset):
 
     @property
     def channels(self):
-        channels = [self._thinkers[t].channels for t in self._thinkers]
+        channels = [self.thinkers[t].channels for t in self.thinkers]
         if not _same_channel_sets(channels):
             raise ValueError("Multiple channel sets found. A consistent mapping like Deep1010 is necessary to proceed.")
         channels = channels.pop()
@@ -744,7 +744,7 @@ class Dataset(DN3ataset, ConcatDataset):
 
     @property
     def sequence_length(self):
-        sequence_length = set(self._thinkers[t].sequence_length for t in self._thinkers)
+        sequence_length = set(self.thinkers[t].sequence_length for t in self.thinkers)
         if len(sequence_length) > 1:
             print("Warning: Multiple sequence lengths found. A cropping transformation may be in order.")
             return unfurl(sequence_length)
@@ -762,19 +762,31 @@ class Dataset(DN3ataset, ConcatDataset):
         -------
         thinker_names : list
         """
-        return list(self._thinkers.keys())
+        return list(self.thinkers.keys())
+
+    def get_sessions(self):
+        """
+        Accumulates all the sessions from each thinker in the dataset in a nested dictionary.
+
+        Returns
+        -------
+        session_dict: dict
+                      Keys are the thinkers of :py:meth:`get_thinkers()`, values are each another dictionary that maps
+                      session ids to :any:`_Recording`
+        """
+        return {th: th.sessions.copy() for th in self.thinkers}
 
     def __len__(self):
         return self.cumulative_sizes[-1]
 
     def _make_like_me(self, people: list):
         if len(people) == 1:
-            like_me = self._thinkers[people[0]].clone()
+            like_me = self.thinkers[people[0]].clone()
         else:
             dataset_id = self.dataset_id.item() if self.dataset_id is not None else None
             task_id = self.task_id.item() if self.dataset_id is not None else None
 
-            like_me = Dataset({p: self._thinkers[p] for p in people}, dataset_id, task_id, self.return_person_id,
+            like_me = Dataset({p: self.thinkers[p] for p in people}, dataset_id, task_id, self.return_person_id,
                               self.return_session_id, self.return_dataset_id, self.return_task_id,
                               dataset_info=self.info)
         for x in self._transforms:
@@ -783,7 +795,7 @@ class Dataset(DN3ataset, ConcatDataset):
 
     def _generate_splits(self, validation, testing):
         for val, test in zip(validation, testing):
-            training = list(self._thinkers.keys())
+            training = list(self.thinkers.keys())
             for v in val:
                 training.remove(v)
             for t in test:
@@ -920,9 +932,9 @@ class Dataset(DN3ataset, ConcatDataset):
 
     def get_targets(self):
         targets = list()
-        for tid in self._thinkers:
-            if hasattr(self._thinkers[tid], 'get_targets'):
-                targets.append(self._thinkers[tid].get_targets())
+        for tid in self.thinkers:
+            if hasattr(self.thinkers[tid], 'get_targets'):
+                targets.append(self.thinkers[tid].get_targets())
         if len(targets) == 0:
             return None
         return np.concatenate(targets)
