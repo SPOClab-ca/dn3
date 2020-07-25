@@ -85,8 +85,9 @@ class TestDatasetDummyData(unittest.TestCase):
     def setUp(self) -> None:
         mne.set_log_level(False)
         self.dataset = create_dummy_dataset(dataset_id=self._DATASET_ID, task_id=self._TASK_ID, return_person_id=True,
-                                            return_session_id=True, return_dataset_id=True, return_task_id=True,
-                                            return_trial_id=True)
+                                            return_session_id=True, return_dataset_id=True, return_task_id=True)
+        # Test return trial_id using update
+        self.dataset.update_id_returns(trial=True)
 
     def test_MakeDataset(self):
         self.assertEqual(len(self.dataset), len(EVENTS) * 2 * THINKERS_IN_DATASETS)

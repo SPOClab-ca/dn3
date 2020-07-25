@@ -110,7 +110,7 @@ class ExperimentConfig:
             if name in ds_entries.keys():
                 self.datasets[name] = DatasetConfig(name, ds_entries[name], deep1010=self._make_deep1010,
                                                     samples=self.global_samples, sfreq=self.global_sfreq,
-                                                    preload=preload)
+                                                    preload=preload, return_trial_ids=return_trial_ids)
             else:
                 raise DN3ConfigException("Could not find {} in datasets".format(name))
 

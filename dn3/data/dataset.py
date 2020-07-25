@@ -611,7 +611,6 @@ class Dataset(DN3ataset, ConcatDataset):
         raw_data, task_id, dataset_id, person_id, session_id, *label
         """
         super().__init__()
-        self.update_id_returns(return_trial_id, return_session_id, return_person_id, return_dataset_id, return_task_id)
         self.info = dataset_info
 
         if not isinstance(thinkers, Iterable):
@@ -623,11 +622,12 @@ class Dataset(DN3ataset, ConcatDataset):
 
         self.thinkers = OrderedDict()
         for t in sorted(thinkers.keys()):
-            self.__add__(thinkers[t], person_id=t, return_session_id=return_session_id)
+            self.__add__(thinkers[t], person_id=t, return_session_id=return_session_id, return_trial_id=return_trial_id)
         self._reset_dataset()
 
         self.dataset_id = torch.tensor(dataset_id).long() if dataset_id is not None else None
         self.task_id = torch.tensor(task_id).long() if task_id is not None else None
+        self.update_id_returns(return_trial_id, return_session_id, return_person_id, return_dataset_id, return_task_id)
 
     def update_id_returns(self, trial=None, session=None, person=None, task=None, dataset=None):
         """
@@ -651,6 +651,10 @@ class Dataset(DN3ataset, ConcatDataset):
         self.return_person_id = self.return_person_id if person is None else person
         self.return_dataset_id = self.return_dataset_id if dataset is None else dataset
         self.return_task_id = self.return_task_id if task is None else task
+        def set_ids_for_thinkers(th_id, thinker: Thinker):
+            thinker.return_trial_id = self.return_trial_id
+            thinker.return_session_id = self.return_session_id
+        self._apply(set_ids_for_thinkers)
 
     def _reset_dataset(self):
         for p_id in self.thinkers:
