@@ -369,6 +369,7 @@ class DatasetConfig:
         lowpass = raw.info.get('lowpass', None)
         raw_sfreq = raw.info['sfreq']
         new_sfreq = raw_sfreq / self.decimate if self._sfreq is None else self._sfreq
+
         # Don't allow violation of Nyquist criterion if sfreq is being changed
         if lowpass is not None and (new_sfreq < 2 * lowpass) and new_sfreq != raw_sfreq:
             raise DN3ConfigException("Could not create raw for {}. With lowpass filter {}, sampling frequency {} and "
@@ -376,6 +377,11 @@ class DatasetConfig:
                                                                                                 raw.info['lowpass'],
                                                                                                 raw.info['sfreq'],
                                                                                                 new_sfreq))
+
+        # Leverage decimation first to match desired sfreq (saves memory)
+        if self._sfreq is not None:
+            while (raw_sfreq // (self.decimate + 1)) >= new_sfreq:
+                self.decimate += 1
 
         # Pick types
         picks = pick_types(raw.info, **{t: t in self.picks for t in self._PICK_TYPES}) if self._picks_as_types() \

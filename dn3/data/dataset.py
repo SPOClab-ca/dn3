@@ -207,16 +207,19 @@ class RawTorchRecording(_Recording):
         self.raw = raw
         self.filename = raw.filenames[0]
         self.decimate = int(decimate)
+        self._recording_sfreq /= self.decimate
         self.stride = stride
-        self._stride_load = stride > self.sequence_length and raw.preload
+        # Implement my own (rather than mne's) in-memory buffer when there are savings
+        self._stride_load = self.decimate > 1 or (stride > self.sequence_length and raw.preload)
         self.max = kwargs.get('max', None)
         self.min = kwargs.get('min', 0)
         self.__dict__.update(kwargs)
 
-        self._num_sequences = max(0, (self.raw.n_times - self.sequence_length) // self.stride)
+        self._num_sequences = max(0, ((self.raw.n_times // self.decimate) - self.sequence_length) // self.stride)
 
         # When the stride is greater than the sequence length, preload savings can be found by chopping the
-        # sequence into subsequences of length sequence length
+        # sequence into subsequences of length sequence length. Also, if decimating, can significantly reduce memory
+        # requirements not otherwise addressed with the Raw object.
         if self._stride_load and self._num_sequences > 0:
             self.raw = None
             x = raw.get_data(self.picks)
@@ -224,7 +227,7 @@ class RawTorchRecording(_Recording):
             x = x[:, ::decimate]
             self._x = np.empty([x.shape[0], self.sequence_length, self._num_sequences], dtype=x.dtype)
             for i in range(self._num_sequences):
-                t = i * stride * decimate
+                t = i * stride
                 self._x[..., i] = x[:, t:t+self.sequence_length]
 
     def __getitem__(self, index):
@@ -235,7 +238,9 @@ class RawTorchRecording(_Recording):
             x = self._x[self.picks, :, index]
         else:
             index *= self.stride * self.decimate
-            x = self.raw.get_data(self.picks, start=index, stop=index+self.sequence_length)
+            x = self.raw.get_data(self.picks, start=index, stop=index+(self.sequence_length*self.decimate))
+            if self.decimate > 1:
+                x = x[:, ::self.decimate]
 
         scale = 1 if self.max is None else (x.max() - x.min()) / (self.max - self.min)
         if scale > 1 or np.isnan(scale):

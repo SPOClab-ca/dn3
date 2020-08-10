@@ -72,10 +72,11 @@ def create_dummy_dataset(epoched=True, sessions_per_thinker=2, num_thinkers=THIN
 # Check functions
 # ---------------
 
-def check_raw_against_data(retrieved, index, normalizer=lambda x: x):
+def check_raw_against_data(retrieved, index, normalizer=lambda x: x, decimate=1):
     data = torch.from_numpy(create_basic_data())
     sample_len = int(TLEN * SFREQ)
-    return torch.allclose(retrieved, normalizer(data[:2, index:index+sample_len].float()))
+    d = data[:2, ::decimate]
+    return torch.allclose(retrieved, normalizer(d[:, index:index+sample_len].float()))
 
 
 def retrieve_underlying_dummy_data(event_index):
