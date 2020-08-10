@@ -208,6 +208,7 @@ class RawTorchRecording(_Recording):
         self.filename = raw.filenames[0]
         self.decimate = int(decimate)
         self._recording_sfreq /= self.decimate
+        self._recording_len = int(tlen * self._recording_sfreq)
         self.stride = stride
         # Implement my own (rather than mne's) in-memory buffer when there are savings
         self._stride_load = self.decimate > 1 or (stride > self.sequence_length and raw.preload)
