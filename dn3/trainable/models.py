@@ -93,8 +93,8 @@ class Classifier(DN3BaseModel):
         self.targets = targets
         self.make_new_classification_layer()
 
-    def forward(self, x):
-        features = self.features_forward(x)
+    def forward(self, *x):
+        features = self.features_forward(*x)
         if self.return_features:
             return self.classifier_forward(features), features
         else:

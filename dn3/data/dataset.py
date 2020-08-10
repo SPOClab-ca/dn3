@@ -205,33 +205,53 @@ class RawTorchRecording(_Recording):
         """
         super().__init__(raw.info, session_id, person_id, tlen, ch_ind_picks)
         self.raw = raw
+        self.filename = raw.filenames[0]
         self.decimate = int(decimate)
         self.stride = stride
+        self._stride_load = stride > self.sequence_length and raw.preload
         self.max = kwargs.get('max', None)
         self.min = kwargs.get('min', 0)
         self.__dict__.update(kwargs)
 
+        self._num_sequences = max(0, (self.raw.n_times - self.sequence_length) // self.stride)
+
+        # When the stride is greater than the sequence length, preload savings can be found by chopping the
+        # sequence into subsequences of length sequence length
+        if self._stride_load and self._num_sequences > 0:
+            self.raw = None
+            x = raw.get_data(self.picks)
+            # pre-decimate this data for more preload savings (and for the stride factors to be valid)
+            x = x[:, ::decimate]
+            self._x = np.empty([x.shape[0], self.sequence_length, self._num_sequences], dtype=x.dtype)
+            for i in range(self._num_sequences):
+                t = i * stride * decimate
+                self._x[..., i] = x[:, t:t+self.sequence_length]
+
     def __getitem__(self, index):
         if index < 0:
             index += len(self)
-        index *= self.stride
 
-        # Get the actual signals
-        x = self.raw.get_data(self.picks, start=index, stop=index+self.sequence_length)
+        if self._stride_load:
+            x = self._x[self.picks, :, index]
+        else:
+            index *= self.stride * self.decimate
+            x = self.raw.get_data(self.picks, start=index, stop=index+self.sequence_length)
+
         scale = 1 if self.max is None else (x.max() - x.min()) / (self.max - self.min)
         if scale > 1 or np.isnan(scale):
             print('Warning: scale exeeding 1')
-        x = torch.from_numpy(x[:, ::self.decimate]).float()
+
+        x = torch.from_numpy(x).float()
 
         if torch.any(torch.isnan(x)):
-            print("Nan found: raw {}, index {}".format(self.raw.filenames[0], index))
+            print("Nan found: raw {}, index {}".format(self.filename, index))
             print("Replacing with random values with same shape for now...")
             x = torch.rand_like(x)
 
         return self._execute_transforms(x)
 
     def __len__(self):
-        return max(0, (self.raw.n_times - self.sequence_length) // self.stride)
+        return self._num_sequences
 
     def preprocess(self, preprocessor: Preprocessor, apply_transform=True):
         self.raw = preprocessor(recording=self)

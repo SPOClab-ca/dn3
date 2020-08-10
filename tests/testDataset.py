@@ -29,6 +29,13 @@ class TestSessionsDummyData(unittest.TestCase):
             data_offset = list(range(len(recording)))[i]
             self.assertTrue(check_raw_against_data(recording[i][0], data_offset))
 
+    def test_StridedRawRecording(self):
+        stride = 257
+        recording = self.make_raw_recording(picks=[0, 1], stride=stride)
+        for i in (0, 5, -1):
+            data_offset = list(range(len(recording)))[i]
+            self.assertTrue(check_raw_against_data(recording[i][0], data_offset*stride))
+
     def test_EpochRecordingCreate(self):
         recording = self.make_epoch_recording()
         self.assertEqual(len(recording), len(EVENTS))

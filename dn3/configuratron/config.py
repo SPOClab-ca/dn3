@@ -366,11 +366,11 @@ class DatasetConfig:
         if self.filter_data:
             raw = raw.filter(self.hpf, self.lpf)
 
-        # Don't allow violation of Nyquist criterion
         lowpass = raw.info.get('lowpass', None)
         raw_sfreq = raw.info['sfreq']
         new_sfreq = raw_sfreq / self.decimate if self._sfreq is None else self._sfreq
-        if lowpass is not None and (new_sfreq < 2 * lowpass):
+        # Don't allow violation of Nyquist criterion if sfreq is being changed
+        if lowpass is not None and (new_sfreq < 2 * lowpass) and new_sfreq != raw_sfreq:
             raise DN3ConfigException("Could not create raw for {}. With lowpass filter {}, sampling frequency {} and "
                                      "new sfreq {}. This is going to have bad aliasing!".format(session,
                                                                                                 raw.info['lowpass'],
