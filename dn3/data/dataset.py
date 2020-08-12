@@ -236,7 +236,7 @@ class RawTorchRecording(_Recording):
             index += len(self)
 
         if self._stride_load:
-            x = self._x[self.picks, :, index]
+            x = self._x[:, :, index]
         else:
             index *= self.stride * self.decimate
             x = self.raw.get_data(self.picks, start=index, stop=index+(self.sequence_length*self.decimate))

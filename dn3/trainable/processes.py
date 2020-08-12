@@ -488,14 +488,19 @@ class BaseProcess(object):
                         and validation_dataset is not None:
                     _validation(epoch, iteration)
 
+            # Make epoch summary
+            metrics = DataFrame(train_log)
+            metrics = metrics[metrics['epoch'] == epoch]
+            metrics = metrics.to_dict()
             print_training_metrics(epoch)
-            metrics = OrderedDict()
 
             if validation_dataset is not None:
-                val_metrics = _validation(epoch)
-                best_model = self._retain_best(best_model, val_metrics, retain_best)
-                if callable(epoch_callback):
-                    epoch_callback(val_metrics)
+                metrics = _validation(epoch)
+                best_model = self._retain_best(best_model, metrics, retain_best)
+
+            if callable(epoch_callback):
+                epoch_callback(metrics)
+            metrics = OrderedDict()
 
         if _clear_scheduler_after:
             self.set_scheduler(None)
