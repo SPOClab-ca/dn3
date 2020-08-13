@@ -246,6 +246,7 @@ class BaseProcess(object):
         metrics : OrderedDict
                 Metric scores for the entire
         """
+        self.train(False)
         inputs, outputs = self.predict(dataset, **loader_kwargs)
         metrics = self.calculate_metrics(inputs, outputs)
         metrics['loss'] = self.calculate_loss(inputs, outputs).item()
@@ -306,6 +307,8 @@ class BaseProcess(object):
         for m in metrics:
             if 'acc' in m.lower() or 'pct' in m.lower():
                 start_message += " {}: {:.2%} |".format(m, metrics[m])
+            elif m == 'lr':
+                start_message += " {}: {:.3e} |".format(m, metrics[m])
             else:
                 start_message += " {}: {:.3f} |".format(m, metrics[m])
         tqdm.tqdm.write(start_message)
@@ -366,6 +369,7 @@ class BaseProcess(object):
         return DataLoader(dataset, **loader_kwargs)
 
     def fit(self, training_dataset, epochs=1, validation_dataset=None, step_callback=None,
+            resume_epoch=None, resume_iteration=None, log_callback=None,
             epoch_callback=None, batch_size=8, warmup_frac=0.2, retain_best='loss',
             validation_interval=None, train_log_interval=None, **loader_kwargs):
         """
@@ -377,8 +381,19 @@ class BaseProcess(object):
         training_dataset : DN3ataset, DataLoader
         validation_dataset : DN3ataset, DataLoader
         epochs : int
+                 Total number of epochs to fit
+        resume_epoch : int
+                      The starting epoch to train from. This will likely only be used to resume training at a certain
+                      point.
+        resume_iteration : int
+                          Similar to start epoch but specified in batches. This can either be used alone, or in
+                          conjunction with `start_epoch`. If used alone, the start epoch is the floor of
+                          `start_iteration` divided by batches per epoch. In other words this specifies cumulative
+                          batches if start_epoch is not specified, and relative to the current epoch otherwise.
         step_callback : callable
                         Function to run after every training step that has signature: fn(train_metrics) -> None
+        log_callback : callable
+                       Function to run after every log interval that has signature: fn(train_metrics) -> None
         epoch_callback : callable
                         Function to run after every epoch that has signature: fn(validation_metrics) -> None
         batch_size : int
@@ -420,12 +435,20 @@ class BaseProcess(object):
         training_dataset = self._check_make_dataloader(training_dataset, training=True, **loader_kwargs)
         # validation_dataset = _check_make_dataloader(validation_dataset, **loader_kwargs)
 
+        if resume_epoch is None:
+            if resume_iteration is None or resume_iteration < len(training_dataset):
+                resume_epoch = 1
+            else:
+                resume_epoch = resume_iteration // len(training_dataset)
+        resume_iteration = 1 if resume_iteration is None else resume_iteration % len(training_dataset)
+        current_iteration = (resume_epoch - 1) * len(training_dataset) + resume_iteration - 1
+
         _clear_scheduler_after = self.scheduler is None
         if _clear_scheduler_after:
             self.set_scheduler(
                 torch.optim.lr_scheduler.OneCycleLR(self.optimizer, self.lr, epochs=epochs,
                                                     steps_per_epoch=len(training_dataset),
-                                                    pct_start=warmup_frac)
+                                                    pct_start=warmup_frac, last_epoch=current_iteration-1)
             )
 
         validation_log = list()
@@ -462,9 +485,9 @@ class BaseProcess(object):
             validation_log.append(_metrics)
             return _metrics
 
-        epoch_bar = tqdm.trange(1, epochs+1, desc="Epoch", unit='epoch')
+        epoch_bar = tqdm.trange(resume_epoch, epochs + 1, desc="Epoch", unit='epoch')
         for epoch in epoch_bar:
-            pbar = tqdm.trange(1, len(training_dataset)+1, desc="Iteration", unit='batches')
+            pbar = tqdm.trange(resume_iteration, len(training_dataset) + 1, desc="Iteration", unit='batches')
             data_iterator = iter(training_dataset)
             for iteration in pbar:
                 inputs = self._get_batch(data_iterator)
@@ -482,6 +505,7 @@ class BaseProcess(object):
 
                 if iteration % train_log_interval == 0 and pbar.total != iteration:
                     print_training_metrics(epoch, iteration)
+                    log_callback(metrics)
                     metrics = OrderedDict()
 
                 if isinstance(validation_interval, int) and (iteration % validation_interval == 0)\
@@ -491,7 +515,8 @@ class BaseProcess(object):
             # Make epoch summary
             metrics = DataFrame(train_log)
             metrics = metrics[metrics['epoch'] == epoch]
-            metrics = metrics.to_dict()
+            metrics = metrics.mean().to_dict()
+            metrics.pop('iteration', None)
             print_training_metrics(epoch)
 
             if validation_dataset is not None:
@@ -501,6 +526,8 @@ class BaseProcess(object):
             if callable(epoch_callback):
                 epoch_callback(metrics)
             metrics = OrderedDict()
+            # All future epochs should not start offset in iterations
+            resume_iteration = 1
 
         if _clear_scheduler_after:
             self.set_scheduler(None)

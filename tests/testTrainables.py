@@ -76,12 +76,7 @@ class TestSimpleClassifier(unittest.TestCase):
             with self.subTest("train-mode"):
                 self.assertTrue(self.classifier.training)
 
-        def check_eval_mode(metrics):
-            with self.subTest("eval-mode"):
-                self.assertFalse(self.classifier.training)
-
-        train_log, eval_log = trainable.fit(loader, epochs=self._NUM_EPOCHS, step_callback=check_train_mode,
-                                            epoch_callback=check_eval_mode)
+        train_log, eval_log = trainable.fit(loader, epochs=self._NUM_EPOCHS, step_callback=check_train_mode)
 
         self.assertEqual(len(train_log), self._NUM_EPOCHS * len(self.dataset) // self._BATCH_SIZE)
 
