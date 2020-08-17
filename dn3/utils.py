@@ -12,6 +12,13 @@ class DN3ConfigException(BaseException):
     pass
 
 
+class DN3atasetException(BaseException):
+    """
+    Exception to be triggered when DN3-dataset-specific issues arise.
+    """
+    pass
+
+
 def rand_split(dataset, frac=0.75):
     if frac >= 1:
         return dataset

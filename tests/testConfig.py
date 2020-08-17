@@ -1,4 +1,4 @@
-import mne
+import tqdm
 import unittest
 import os
 import yaml
@@ -131,6 +131,15 @@ class TestRealDatasetConfiguratron(unittest.TestCase):
         self.assertEqual(self.NUM_SUBJECTS - 4, len(dataset.get_thinkers()))
         # After exclusion, should have single SFREQ
         self.assertEqual(self.SFREQ / self.fully.decimate, dataset.sfreq)
+
+    def test_OnTheFlyRaw(self):
+        preload = self.minimal_raw.auto_construct_dataset()
+        self.minimal_raw._on_the_fly = True
+        on_the_fly = self.minimal_raw.auto_construct_dataset()
+        # 1000 sequences should be sufficient
+        for i in tqdm.trange(1000):
+            with self.subTest(i=i):
+                self.assertTrue(torch.equal(preload[i][0], on_the_fly[i][0]))
 
     @classmethod
     def tearDownClass(cls) -> None:

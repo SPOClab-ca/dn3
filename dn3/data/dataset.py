@@ -6,7 +6,7 @@ import numpy as np
 
 from dn3.transforms.preprocessors import Preprocessor
 from dn3.transforms.basic import BaseTransform
-from dn3.utils import rand_split, unfurl
+from dn3.utils import rand_split, unfurl, DN3atasetException
 
 from abc import ABC
 from collections import OrderedDict
@@ -204,7 +204,6 @@ class RawTorchRecording(_Recording):
                    sample.
         """
         super().__init__(raw.info, session_id, person_id, tlen, ch_ind_picks)
-        self.raw = raw
         self.filename = raw.filenames[0]
         self.decimate = int(decimate)
         self._recording_sfreq /= self.decimate
@@ -216,13 +215,12 @@ class RawTorchRecording(_Recording):
         self.min = kwargs.get('min', 0)
         self.__dict__.update(kwargs)
 
-        self._num_sequences = max(0, ((self.raw.n_times // self.decimate) - self.sequence_length) // self.stride)
+        self._num_sequences = max(0, ((raw.n_times // self.decimate) - self.sequence_length) // self.stride)
 
         # When the stride is greater than the sequence length, preload savings can be found by chopping the
         # sequence into subsequences of length sequence length. Also, if decimating, can significantly reduce memory
         # requirements not otherwise addressed with the Raw object.
         if self._stride_load and self._num_sequences > 0:
-            self.raw = None
             x = raw.get_data(self.picks)
             # pre-decimate this data for more preload savings (and for the stride factors to be valid)
             x = x[:, ::decimate]
@@ -230,6 +228,11 @@ class RawTorchRecording(_Recording):
             for i in range(self._num_sequences):
                 t = i * stride
                 self._x[..., i] = x[:, t:t+self.sequence_length]
+        else:
+            self._raw_workaround(raw)
+
+    def _raw_workaround(self, raw):
+        self.raw = raw
 
     def __getitem__(self, index):
         if index < 0:
@@ -696,7 +699,7 @@ class Dataset(DN3ataset, ConcatDataset):
 
     def __str__(self):
         ds_name = "Dataset-{}".format(self.dataset_id) if self.info is None else self.info.dataset_name
-        return ">> {} | DSID: {} | {} people | {} trials | {} channels | {} samples/trial | {:.1f}Hz | {} transforms".\
+        return ">> {} | DSID: {} | {} people | {} trials | {} channels | {} samples/trial | {}Hz | {} transforms".\
             format(ds_name, self.dataset_id, len(self.get_thinkers()), len(self), len(self.channels),
                    self.sequence_length, self.sfreq, len(self._transforms))
 

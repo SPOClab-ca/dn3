@@ -222,6 +222,9 @@ class DatasetConfig:
             print("{}: No need to specify decimate ({}) when sfreq is set ({})".format(self.name, self.decimate, sfreq))
             self.decimate = 1
 
+        # Funky stuff
+        self._on_the_fly = get_pop('load_onthefly', False)
+
         # Required args
         try:
             self.toplevel = Path(config.pop('toplevel'))
@@ -247,11 +250,12 @@ class DatasetConfig:
     _PICK_TYPES = ['meg', 'eeg', 'stim', 'eog', 'ecg', 'emg', 'ref_meg', 'misc', 'resp', 'chpi', 'exci', 'ias', 'syst',
                    'seeg', 'dipole', 'gof', 'bio', 'ecog', 'fnirs', 'csd', ]
 
-    def _picks_as_types(self):
-        if self.picks is None:
+    @staticmethod
+    def _picks_as_types(picks):
+        if picks is None:
             return False
-        for pick in self.picks:
-            if not isinstance(pick, str) or pick.lower() not in self._PICK_TYPES:
+        for pick in picks:
+            if not isinstance(pick, str) or pick.lower() not in DatasetConfig._PICK_TYPES:
                 return False
         return True
 
@@ -357,55 +361,64 @@ class DatasetConfig:
 
         raise DN3ConfigException("No supported/provided loader found for {}".format(str(path)))
 
-    def _construct_session_from_config(self, session, sess_id, thinker_id):
-        if not isinstance(session, Path):
-            session = Path(session)
-
-        raw = self._load_raw(session)
-
-        if self.filter_data:
-            raw = raw.filter(self.hpf, self.lpf)
+    @staticmethod
+    def _prepare_session(raw, tlen, decimate, desired_sfreq, desired_samples, picks, exclude_channels, rename_channels,
+                         hpf, lpf):
+        if hpf is not None or lpf is not None:
+            raw = raw.filter(hpf, lpf)
 
         lowpass = raw.info.get('lowpass', None)
         raw_sfreq = raw.info['sfreq']
-        new_sfreq = raw_sfreq / self.decimate if self._sfreq is None else self._sfreq
+        new_sfreq = raw_sfreq / decimate if desired_sfreq is None else desired_sfreq
 
         # Don't allow violation of Nyquist criterion if sfreq is being changed
         if lowpass is not None and (new_sfreq < 2 * lowpass) and new_sfreq != raw_sfreq:
             raise DN3ConfigException("Could not create raw for {}. With lowpass filter {}, sampling frequency {} and "
-                                     "new sfreq {}. This is going to have bad aliasing!".format(session,
+                                     "new sfreq {}. This is going to have bad aliasing!".format(raw.filenames[0],
                                                                                                 raw.info['lowpass'],
                                                                                                 raw.info['sfreq'],
                                                                                                 new_sfreq))
 
         # Leverage decimation first to match desired sfreq (saves memory)
-        if self._sfreq is not None:
-            while (raw_sfreq // (self.decimate + 1)) >= new_sfreq:
-                self.decimate += 1
+        if desired_sfreq is not None:
+            while (raw_sfreq // (decimate + 1)) >= new_sfreq:
+                decimate += 1
 
         # Pick types
-        picks = pick_types(raw.info, **{t: t in self.picks for t in self._PICK_TYPES}) if self._picks_as_types() \
-            else list(range(len(raw.ch_names)))
+        picks = pick_types(raw.info, **{t: t in picks for t in DatasetConfig._PICK_TYPES}) \
+            if DatasetConfig._picks_as_types(picks) else list(range(len(raw.ch_names)))
 
         # Exclude channel index by pattern match
         picks = ([idx for idx in picks if True not in [fnmatch(raw.ch_names[idx], pattern)
-                                                       for pattern in self.exclude_channels]])
+                                                       for pattern in exclude_channels]])
 
         # Rename channels
         renaming_map = dict()
-        for new_ch, pattern in self.rename_channels.items():
+        for new_ch, pattern in rename_channels.items():
             for old_ch in [raw.ch_names[idx] for idx in picks if fnmatch(raw.ch_names[idx], pattern)]:
                 renaming_map[old_ch] = new_ch
         raw = raw.rename_channels(renaming_map)
 
-        if self.tlen is None:
-            tlen = self._samples / new_sfreq
-        else:
-            tlen = self.tlen
+        tlen = desired_samples / new_sfreq if tlen is None else tlen
+
+        return raw, tlen, picks, new_sfreq
+
+    def _construct_session_from_config(self, session, sess_id, thinker_id):
+        def load_and_prepare(sess):
+            if not isinstance(sess, Path):
+                sess = Path(sess)
+            r = self._load_raw(sess)
+            return sess, *self._prepare_session(r, self.tlen, self.decimate, self._sfreq, self._samples, self.picks,
+                                                self.exclude_channels, self.rename_channels, self.hpf, self.lpf)
+        sess, raw, tlen, picks, new_sfreq = load_and_prepare(session)
 
         # Fixme - deprecate the decimate option in favour of specifying desired sfreq's
         if self._create_raw_recordings:
-            recording = RawTorchRecording(raw, tlen, stride=self.stride, decimate=self.decimate, ch_ind_picks=picks)
+            if self._on_the_fly:
+                recording = RawOnTheFlyRecording(raw, tlen, lambda s: load_and_prepare(s)[1], stride=self.stride,
+                                                 decimate=self.decimate, ch_ind_picks=picks)
+            else:
+                recording = RawTorchRecording(raw, tlen, stride=self.stride, decimate=self.decimate, ch_ind_picks=picks)
         else:
             use_annotations = self.events is not None and True in [isinstance(x, str) for x in self.events.keys()]
             if use_annotations and self.annotation_format is not None:
@@ -516,3 +529,25 @@ class DatasetConfig:
                 print('=' * 20)
         #     dataset.add_transform(MappingDeep1010(dataset))
         return dataset
+
+
+class RawOnTheFlyRecording(RawTorchRecording):
+
+    def __init__(self, raw, tlen, file_loader, session_id=0, person_id=0, stride=1, ch_ind_picks=None,
+                 decimate=1, **kwargs):
+        super().__init__(raw, tlen, session_id, person_id, stride, ch_ind_picks, decimate, **kwargs)
+        self.file_loader = file_loader
+
+    def _raw_workaround(self, raw):
+        return
+
+    @property
+    def raw(self):
+        return self.file_loader(self.filename)
+
+    def preprocess(self, preprocessor, apply_transform=True):
+        result = preprocessor(recording=self)
+        if result is not None:
+            raise DN3ConfigException("Modifying raw after preprocessing is not supported with on-the-fly")
+        if apply_transform:
+            self.add_transform(preprocessor.get_transform())

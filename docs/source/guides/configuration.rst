@@ -273,7 +273,8 @@ name *(string)*
   (potentially) many different configurations of said dataset (which might all share this parameter).
 
 preload *(bool)*
-  Whether to preload the recordings from this dataset. This overrides the experiment level `preload1 option
+  Whether to preload the recordings from this dataset. This overrides the experiment level `preload` option. Note that
+  not all data formats support `preload`: False, but most do.
 
 hpf *(float)*
   This entry (and the very similar `lpf` option) provide an option to highpass filter the raw data before anything else.
@@ -321,3 +322,12 @@ exclude_people *(list)
 exclude_sessions *(list)
   List of sessions (files) to be ignored when performing automatic constructions. Supports Unix-style pattern
   matching *within quotations* (*, ?, [seq], [!seq]).
+
+Experimental/Risky Options
+--------------------------
+
+load_onthefly *(bool)*
+  This overrides any preload values (for the dataset or experiment) and minimizes memory overhead from recordings
+  at the cost of compute time and increased disk I/O. This is only really helpful if you have a dataset *so large* that
+  mne's Raw instances start to fill your memory (this is not impossible, so if you are running out of memory, try
+  switching on this option). Currently this does not work with epoched data.

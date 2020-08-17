@@ -441,15 +441,17 @@ class BaseProcess(object):
             else:
                 resume_epoch = resume_iteration // len(training_dataset)
         resume_iteration = 1 if resume_iteration is None else resume_iteration % len(training_dataset)
-        current_iteration = (resume_epoch - 1) * len(training_dataset) + resume_iteration - 1
 
         _clear_scheduler_after = self.scheduler is None
         if _clear_scheduler_after:
             self.set_scheduler(
                 torch.optim.lr_scheduler.OneCycleLR(self.optimizer, self.lr, epochs=epochs,
                                                     steps_per_epoch=len(training_dataset),
-                                                    pct_start=warmup_frac, last_epoch=current_iteration-1)
+                                                    pct_start=warmup_frac)
             )
+            # If resuming, need to pre-step
+            for _ in range((resume_epoch - 1) * len(training_dataset) + resume_iteration - 1):
+                self.scheduler.step()
 
         validation_log = list()
         train_log = list()
@@ -485,9 +487,10 @@ class BaseProcess(object):
             validation_log.append(_metrics)
             return _metrics
 
-        epoch_bar = tqdm.trange(resume_epoch, epochs + 1, desc="Epoch", unit='epoch')
+        epoch_bar = tqdm.trange(resume_epoch, epochs + 1, desc="Epoch", unit='epoch', initial=resume_epoch, total=epochs)
         for epoch in epoch_bar:
-            pbar = tqdm.trange(resume_iteration, len(training_dataset) + 1, desc="Iteration", unit='batches')
+            pbar = tqdm.trange(resume_iteration, len(training_dataset) + 1, desc="Iteration", unit='batches',
+                               initial=resume_iteration, total=len(training_dataset))
             data_iterator = iter(training_dataset)
             for iteration in pbar:
                 inputs = self._get_batch(data_iterator)
