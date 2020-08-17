@@ -1,7 +1,8 @@
 import torch
 import numpy as np
 
-from .channels import map_dataset_channels_deep_1010, DEEP_1010_CH_TYPES, SCALE_IND
+from .channels import map_dataset_channels_deep_1010, DEEP_1010_CH_TYPES, SCALE_IND, \
+    EEG_INDS, EOG_INDS, REF_INDS, EXTRA_INDS
 from dn3.utils import min_max_normalize
 
 from torch.nn.functional import interpolate
@@ -219,10 +220,15 @@ class MappingDeep1010(BaseTransform):
     def __call__(self, x):
         if self.max_scale is not None:
             scale = 2 * (torch.clamp_max((x.max() - x.min()) / self.max_scale, 1.0) - 0.5)
-        x = min_max_normalize(x)
+        else:
+            scale = 0
 
         x = (x.transpose(1, 0) @ self.mapping).transpose(1, 0)
-        x[SCALE_IND, :] = 0 if self.max_scale is None else scale
+
+        for ch_type_inds in (EEG_INDS, EOG_INDS, REF_INDS, EXTRA_INDS):
+            x[ch_type_inds, :] = min_max_normalize(x[ch_type_inds, :])
+
+        x[SCALE_IND, :] = scale
 
         if self.return_mask:
             return (x, self.mapping.sum(dim=0).bool())
