@@ -102,9 +102,14 @@ def _heuristic_eog_resolution(eog_channel_name):
 def _heuristic_ref_resolution(ref_channel_name: str):
     ref_channel_name = ref_channel_name.replace('EAR', '')
     ref_channel_name = ref_channel_name.replace('REF', '')
-    if ref_channel_name.find('A1') != -1 or ref_channel_name.find('L') != -1:
+    if ref_channel_name.find('A1') != -1:
         return 'A1'
-    elif ref_channel_name.find('A2') != -1 or ref_channel_name.find('R') != -1:
+    elif ref_channel_name.find('A2') != -1:
+        return 'A2'
+
+    if ref_channel_name.find('L') != -1:
+        return 'A1'
+    elif ref_channel_name.find('R') != -1:
         return 'A2'
     return "REF"
 
