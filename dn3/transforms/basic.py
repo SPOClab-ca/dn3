@@ -228,10 +228,13 @@ class MappingDeep1010(BaseTransform):
         for ch_type_inds in (EEG_INDS, EOG_INDS, REF_INDS, EXTRA_INDS):
             x[ch_type_inds, :] = min_max_normalize(x[ch_type_inds, :])
 
+        used_channel_mask = self.mapping.sum(dim=0).bool()
+        x[~used_channel_mask, :] = 0
+
         x[SCALE_IND, :] = scale
 
         if self.return_mask:
-            return (x, self.mapping.sum(dim=0).bool())
+            return (x, used_channel_mask)
         else:
             return x
 

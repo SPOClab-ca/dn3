@@ -408,8 +408,8 @@ class DatasetConfig:
             if not isinstance(sess, Path):
                 sess = Path(sess)
             r = self._load_raw(sess)
-            return sess, *self._prepare_session(r, self.tlen, self.decimate, self._sfreq, self._samples, self.picks,
-                                                self.exclude_channels, self.rename_channels, self.hpf, self.lpf)
+            return (sess, *self._prepare_session(r, self.tlen, self.decimate, self._sfreq, self._samples, self.picks,
+                                                self.exclude_channels, self.rename_channels, self.hpf, self.lpf))
         sess, raw, tlen, picks, new_sfreq = load_and_prepare(session)
 
         # Fixme - deprecate the decimate option in favour of specifying desired sfreq's
