@@ -5,6 +5,12 @@ from dn3.data.utils import MultiDatasetContainer
 from tests.dummy_data import *
 
 
+class NaNTransform(BaseTransform):
+
+    def __call__(self, x):
+        return torch.zeros_like(x) / 0
+
+
 class TestSessionsDummyData(unittest.TestCase):
 
     def setUp(self):
@@ -178,6 +184,11 @@ class TestDatasetDummyData(unittest.TestCase):
             with self.subTest(i=i):
                 label = EVENTS[i % len(EVENTS)][1]
                 self.assertEqual(label - 1, y)
+
+    def test_SafeMode(self):
+        self.dataset.safe_mode(True)
+        self.dataset.add_transform(NaNTransform())
+        self.assertRaises(DN3atasetNanFound, lambda: [_ for _ in self.dataset])
 
 
 class TestDatasetUtils(unittest.TestCase):

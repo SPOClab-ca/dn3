@@ -74,7 +74,7 @@ def create_dummy_dataset(epoched=True, sessions_per_thinker=2, num_thinkers=THIN
 
 def check_raw_against_data(retrieved, index, normalizer=lambda x: x, decimate=1):
     data = torch.from_numpy(create_basic_data())
-    sample_len = int(TLEN * SFREQ)
+    sample_len = int(TLEN * (SFREQ // decimate))
     d = data[:2, ::decimate]
     return torch.allclose(retrieved, normalizer(d[:, index:index+sample_len].float()))
 

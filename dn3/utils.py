@@ -19,6 +19,14 @@ class DN3atasetException(BaseException):
     pass
 
 
+class DN3atasetNanFound(BaseException):
+    """
+    Exception to be triggered when DN3-dataset variants load NaN data, or data becomes NaN when pushed through
+    transforms.
+    """
+    pass
+
+
 def rand_split(dataset, frac=0.75):
     if frac >= 1:
         return dataset

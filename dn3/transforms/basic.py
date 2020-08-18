@@ -17,6 +17,9 @@ class BaseTransform(object):
     def __init__(self, only_trial_data=True):
         self.only_trial_data = only_trial_data
 
+    def __str__(self):
+        return self.__class__.__name__
+
     def __call__(self, *x):
         """
         Modifies a batch of tensors.
