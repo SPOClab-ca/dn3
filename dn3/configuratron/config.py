@@ -199,6 +199,7 @@ class DatasetConfig:
         self.data_max = get_pop('data_max')
         self.data_min = get_pop('data_min')
         self.name = get_pop('name', name)
+        self.dataset_id = get_pop('dataset_id')
         self.preload = get_pop('preload', preload)
         self.hpf = get_pop('hpf', None)
         self.lpf = get_pop('lpf', None)
@@ -521,6 +522,7 @@ class DatasetConfig:
         info = DatasetInfo(self.name, self.data_max, self.data_min, self._excluded_people, self._excluded_sessions,
                            targets=self._targets if self._targets is not None else len(self._unique_events))
         dsargs.setdefault('dataset_info', info)
+        dsargs.setdefault('dataset_id', self.dataset_id)
         dsargs.setdefault('return_trial_id', self.return_trial_ids)
         dataset = Dataset(thinkers, **dsargs)
         print(dataset)

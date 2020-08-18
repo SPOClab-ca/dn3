@@ -1,5 +1,7 @@
 import unittest
 
+from copy import deepcopy
+from dn3.data.utils import MultiDatasetContainer
 from tests.dummy_data import *
 
 
@@ -176,6 +178,37 @@ class TestDatasetDummyData(unittest.TestCase):
             with self.subTest(i=i):
                 label = EVENTS[i % len(EVENTS)][1]
                 self.assertEqual(label - 1, y)
+
+
+class TestDatasetUtils(unittest.TestCase):
+
+    DS_ID = 0
+
+    def setUp(self) -> None:
+        mne.set_log_level(False)
+        self.dataset = create_dummy_dataset(dataset_id=self.DS_ID, task_id=0, return_person_id=True,
+                                            return_session_id=True, return_dataset_id=True, return_task_id=True)
+
+    def test_MultiDatasetContainer(self):
+        with self.subTest("Make container"):
+            multi = MultiDatasetContainer(self.dataset, self.dataset)
+            self.assertEqual(2 * len(self.dataset), len(multi))
+
+        with self.subTest("Oversample"):
+            multi = MultiDatasetContainer(self.dataset, ConcatDataset([self.dataset, self.dataset]), oversample=True)
+            self.assertEqual(4 * len(self.dataset), len(multi))
+
+        with self.subTest("Oversample w/ Max"):
+            multi = MultiDatasetContainer(self.dataset, ConcatDataset([self.dataset, self.dataset]), oversample=True,
+                                          max_artificial_size=int(1.5 * len(self.dataset)))
+            self.assertEqual(int(3.5 * len(self.dataset)), len(multi))
+
+        with self.subTest("DS ids"):
+            ds_copy = deepcopy(self.dataset)
+            ds_copy.dataset_id = self.DS_ID + 1
+            multi = MultiDatasetContainer(self.dataset, ds_copy, return_dataset_ids=True)
+            self.assertEqual(multi[0][-1], self.DS_ID)
+            self.assertEqual(multi[len(self.dataset)][-1], self.DS_ID+1)
 
 
 if __name__ == '__main__':

@@ -315,8 +315,9 @@ data_min *(float, bool)*
   *CAUTION: this can be extremely slow. If specified, the value will be printed and should probably be explicitly added
   to the configuration subsequently.*
 
-dataset_id *(int, "auto")*
-  This allows datasets to be given specific ids. 
+dataset_id *(int)*
+  This allows datasets to be given specific ids. By default, none are provided. If set to an int, this dataset will have
+  this integer `dataset_id.
 
 exclude_people *(list)
   List of people (identified by the name of their respective directories) to be ignored. Supports Unix-style pattern
