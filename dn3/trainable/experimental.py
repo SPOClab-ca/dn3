@@ -4,7 +4,7 @@ from dn3.transforms.basic import BaseTransform
 from dn3.transforms.channels import map_named_channels_deep_1010, DEEP_1010_CHS_LISTING, SCALE_IND
 
 from .processes import BaseProcess, StandardClassification
-from .models import DN3BaseModel
+from .models import Classifier
 
 
 class DonchinSpeller(BaseProcess):
@@ -38,7 +38,7 @@ class DonchinSpeller(BaseProcess):
         return self.loss(outputs, inputs[-1])
 
 
-class TVector(DN3BaseModel):
+class TVector(Classifier):
 
     def __init__(self, num_target_people=None, channels=len(DEEP_1010_CHS_LISTING), hidden_size=384, dropout=0.1,
                  ignored_inds=(SCALE_IND,), incoming_channels=None):
@@ -118,7 +118,7 @@ class TVector(DN3BaseModel):
 
 class ClassificationWithTVectors(StandardClassification):
 
-    def __init__(self, classifier: DN3BaseModel, tvector_model: TVector, loss_fn=None, cuda=False, metrics=None,
+    def __init__(self, classifier: Classifier, tvector_model: TVector, loss_fn=None, cuda=False, metrics=None,
                  learning_rate=None,):
         super(ClassificationWithTVectors, self).__init__(classifier=classifier, tvector_model=tvector_model,
                                                          loss_fn=loss_fn, cuda=cuda, metrics=metrics,

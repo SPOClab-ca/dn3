@@ -1,6 +1,7 @@
 import yaml
 from yamlinclude import YamlIncludeConstructor
 import tqdm
+import warnings
 import mne.io as loader
 import numpy as np
 
@@ -397,7 +398,12 @@ class DatasetConfig:
         for new_ch, pattern in rename_channels.items():
             for old_ch in [raw.ch_names[idx] for idx in picks if fnmatch(raw.ch_names[idx], pattern)]:
                 renaming_map[old_ch] = new_ch
-        raw = raw.rename_channels(renaming_map)
+        try:
+            raw = raw.rename_channels(renaming_map)
+        except ValueError as e:
+            print("Error renaming channels from session: ", raw.filenames[0])
+            print("Failed to rename ", raw.ch_names, " using ", renaming_map)
+            raise DN3ConfigException("Skipping channel name issue.")
 
         tlen = desired_samples / new_sfreq if tlen is None else tlen
 
@@ -543,7 +549,10 @@ class RawOnTheFlyRecording(RawTorchRecording):
 
     @property
     def raw(self):
-        return self.file_loader(self.filename)
+        with warnings.catch_warnings():
+            # Ignore loading warnings that were already addressed during configuratron start-up
+            warnings.simplefilter("ignore")
+            return self.file_loader(self.filename)
 
     def preprocess(self, preprocessor, apply_transform=True):
         result = preprocessor(recording=self)

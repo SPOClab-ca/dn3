@@ -508,7 +508,8 @@ class BaseProcess(object):
 
                 if iteration % train_log_interval == 0 and pbar.total != iteration:
                     print_training_metrics(epoch, iteration)
-                    log_callback(metrics)
+                    if callable(log_callback):
+                        log_callback(metrics)
                     metrics = OrderedDict()
 
                 if isinstance(validation_interval, int) and (iteration % validation_interval == 0)\
