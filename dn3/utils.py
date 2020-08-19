@@ -44,11 +44,20 @@ def unfurl(_set: set):
 
 def min_max_normalize(x: torch.Tensor, low=-1, high=1):
     if len(x.shape) == 2:
-        x = (x - x.min()) / (x.max() - x.min())
+        xmin = x.min()
+        xmax = x.max()
+        if xmax - xmin == 0:
+            x = 0
+            return x
     elif len(x.shape) == 3:
-        x = (x - torch.min(torch.min(x, keepdim=True, dim=1)[0], keepdim=True, dim=-1)[0]) / \
-               (torch.max(torch.max(x, keepdim=True, dim=1)[0], keepdim=True, dim=-1)[0] -
-                torch.min(torch.min(x, keepdim=True, dim=1)[0], keepdim=True, dim=-1)[0])
+        xmin = torch.min(torch.min(x, keepdim=True, dim=1)[0], keepdim=True, dim=-1)[0]
+        xmax = torch.max(torch.max(x, keepdim=True, dim=1)[0], keepdim=True, dim=-1)[0]
+        constant_trials = (xmax - xmin) == 0
+        if torch.any(constant_trials):
+            # If normalizing multiple trials, stabilize the normalization
+            xmax[constant_trials] = xmax[constant_trials] + 1e-6
+
+    x = (x - xmin) / (xmax - xmin)
 
     # Now all scaled 0 -> 1, remove 0.5 bias
     x -= 0.5

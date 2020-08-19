@@ -186,8 +186,10 @@ class TestDatasetDummyData(unittest.TestCase):
                 self.assertEqual(label - 1, y)
 
     def test_SafeMode(self):
-        self.dataset.safe_mode(True)
-        self.dataset.add_transform(NaNTransform())
+        self.dataset._safe_mode = True
+        person = self.dataset.get_thinkers()[0]
+        # Add it to a person to make sure the NaN propagates nicely.
+        self.dataset.thinkers[person].add_transform(NaNTransform())
         self.assertRaises(DN3atasetNanFound, lambda: [_ for _ in self.dataset])
 
 
