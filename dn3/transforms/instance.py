@@ -8,11 +8,11 @@ from dn3.utils import min_max_normalize
 from torch.nn.functional import interpolate
 
 
-class BaseTransform(object):
+class InstanceTransform(object):
     """
-    Transforms are, for the most part, simply operations that are performed on the loaded tensors when they are fetched
-    via the :meth:`__call__` method. Ideally this is implemented with pytorch operations for ease of execution graph
-     integration.
+    Trial transforms are, for the most part, simply operations that are performed on the loaded tensors when they are
+    fetched via the :meth:`__call__` method. Ideally this is implemented with pytorch operations for ease of execution
+    graph integration.
     """
     def __init__(self, only_trial_data=True):
         self.only_trial_data = only_trial_data
@@ -85,7 +85,7 @@ class BaseTransform(object):
         return old_sequence_length
 
 
-class ZScore(BaseTransform):
+class ZScore(InstanceTransform):
     """
     Z-score normalization of trials
     """
@@ -93,7 +93,7 @@ class ZScore(BaseTransform):
         return (x - x.mean()) / x.std()
 
 
-class FixedScale(BaseTransform):
+class FixedScale(InstanceTransform):
     """
     Scale the input to range from low to high
     """
@@ -106,7 +106,7 @@ class FixedScale(BaseTransform):
         return min_max_normalize(x, self.low_bound, self.high_bound)
 
 
-class TemporalPadding(BaseTransform):
+class TemporalPadding(InstanceTransform):
 
     def __init__(self, start_padding, end_padding, mode='constant', constant_value=0):
         """
@@ -137,7 +137,7 @@ class TemporalPadding(BaseTransform):
         return old_sequence_length + self.start_padding + self.end_padding
 
 
-class TemporalInterpolation(BaseTransform):
+class TemporalInterpolation(InstanceTransform):
 
     def __init__(self, desired_sequence_length, mode='nearest', new_sfreq=None):
         """
@@ -187,7 +187,7 @@ class TemporalInterpolation(BaseTransform):
             return old_sfreq
 
 
-class MappingDeep1010(BaseTransform):
+class MappingDeep1010(InstanceTransform):
     """
     Maps various channel sets into the Deep10-10 scheme, and normalizes data between [-1, 1] with an additional scaling
     parameter to describe the relative scale of a trial with respect to the entire dataset.

@@ -5,7 +5,7 @@ import bisect
 import numpy as np
 
 from dn3.transforms.preprocessors import Preprocessor
-from dn3.transforms.basic import BaseTransform
+from dn3.transforms.instance import InstanceTransform
 from dn3.utils import rand_split, unfurl, DN3atasetNanFound
 
 from abc import ABC
@@ -65,12 +65,12 @@ class DN3ataset(TorchDataset):
         transform : BaseTransform
                     For each item retrieved by __getitem__, transform is called to modify that item.
         """
-        if isinstance(transform, BaseTransform):
+        if isinstance(transform, InstanceTransform):
             self._transforms.append(transform)
 
     def _execute_transforms(self, *x):
         for transform in self._transforms:
-            assert isinstance(transform, BaseTransform)
+            assert isinstance(transform, InstanceTransform)
             if transform.only_trial_data:
                 new_x = transform(x[0])
                 if isinstance(new_x, (list, tuple)):
@@ -1017,5 +1017,22 @@ class Dataset(DN3ataset, ConcatDataset):
         if len(targets) == 0:
             return None
         return np.concatenate(targets)
+
+    def dump_dataset(self, toplevel, apply_transforms=True):
+        """
+        Dumps the dataset to the file location specified by toplevel, with a single file per session made of all the
+        return tensors (as numpy data) loaded by the dataset.
+
+        Parameters
+        ----------
+        toplevel : str
+                 The toplevel location to dump the dataset to. This folder (and path) will be created if it does not
+                 exist. Each person will have a subdirectory therein, with numpy-formatted files for each session
+                 within that.
+        apply_transforms: bool
+                 Whether to apply the transforms while preparing the data to be saved.
+        """
+        # TODO
+        raise NotImplementedError
 
 # TODO Convenience functions or classes for leave one and leave multiple datasets out.

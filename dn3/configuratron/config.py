@@ -13,7 +13,7 @@ from mne import pick_types, read_annotations
 
 from dn3.data.dataset import Dataset, RawTorchRecording, EpochTorchRecording, Thinker, DatasetInfo
 from dn3.utils import make_epochs_from_raw, DN3ConfigException
-from dn3.transforms.basic import MappingDeep1010, TemporalInterpolation
+from dn3.transforms.instance import MappingDeep1010, TemporalInterpolation
 from dn3.transforms.channels import stringify_channel_mapping
 
 

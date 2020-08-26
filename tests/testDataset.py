@@ -5,7 +5,7 @@ from dn3.data.utils import MultiDatasetContainer
 from tests.dummy_data import *
 
 
-class NaNTransform(BaseTransform):
+class NaNTransform(InstanceTransform):
 
     def __call__(self, x):
         return torch.zeros_like(x) / 0

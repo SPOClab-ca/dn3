@@ -3,6 +3,7 @@ from sys import gettrace
 
 from dn3.utils import LabelSmoothedCrossEntropyLoss
 from dn3.trainable.models import DN3BaseModel, Classifier
+from dn3.transforms.batch import BatchTransform
 
 # Swap these two for Ipython/Jupyter
 import tqdm
@@ -20,7 +21,7 @@ from torch.utils.data import DataLoader, WeightedRandomSampler
 
 class BaseProcess(object):
 
-    def __init__(self, lr=0.001, metrics=None, l2_weight_decay=0.01, cuda=None, **kwargs):
+    def __init__(self, lr=0.001, metrics=None, evaluation_only_metrics=None, l2_weight_decay=0.01, cuda=None, **kwargs):
         """
         Initialization of the Base Trainable object. Any learning procedure that leverages DN3atasets should subclass
         this base class.
@@ -38,6 +39,9 @@ class BaseProcess(object):
         metrics : dict, list
                   A dictionary of named (keys) metrics (values) or some iterable set of metrics that will be identified
                   by their class names.
+        evaluation_only_metrics : list
+                                 A list of names of metrics that will be used for evaluation only (not calculated or
+                                 reported during training steps).
         l2_weight_decay : float
                           One of the simplest and most common regularizing techniques. If you find a model rapidly
                           reaching high training accuracy (and not validation) increase this. If having trouble fitting
@@ -54,6 +58,7 @@ class BaseProcess(object):
         assert isinstance(cuda, str)
         self.cuda = cuda
         self.device = torch.device(cuda)
+        self._eval_metrics = list() if evaluation_only_metrics is None else list(evaluation_only_metrics).copy()
         self.metrics = OrderedDict()
         if metrics is not None:
             if isinstance(metrics, (list, tuple)):
@@ -77,6 +82,9 @@ class BaseProcess(object):
         self.scheduler = None
         self.lr = lr
         self.weight_decay = l2_weight_decay
+
+        self._batch_transforms = list()
+        self._eval_transforms = list()
 
     def set_optimizer(self, optimizer):
         assert isinstance(optimizer, torch.optim.Optimizer)
@@ -102,8 +110,10 @@ class BaseProcess(object):
         else:
             self.scheduler = scheduler
 
-    def add_metrics(self, metrics: dict):
+    def add_metrics(self, metrics: dict, evaluation_only=False):
         self.metrics.update(**metrics)
+        if evaluation_only:
+            self._eval_metrics += list(metrics.keys())
 
     def _optimize_dataloader_kwargs(self, num_worker_cap=6, **loader_kwargs):
         loader_kwargs.setdefault('pin_memory', self.cuda == 'cuda')
@@ -124,7 +134,23 @@ class BaseProcess(object):
         return loader_kwargs
 
     def _get_batch(self, iterator):
-        return [x.to(self.device) for x in next(iterator)]
+        batch = [x.to(self.device) for x in next(iterator)]
+        xforms = self._batch_transforms if self._training else self._eval_transforms
+        for xform in xforms:
+            if xform.only_trial_data:
+                batch[0] = xform(batch[0])
+            else:
+                batch = xform(batch)
+        return batch
+
+    def add_batch_transform(self, transform: BatchTransform, training_only=True):
+        self._batch_transforms.append(transform)
+        if not training_only:
+            self._eval_transforms.append(transform)
+
+    def clear_batch_transforms(self):
+        self._batch_transforms = list()
+        self._eval_transforms = list()
 
     def build_network(self, **kwargs):
         """
@@ -198,6 +224,8 @@ class BaseProcess(object):
         """
         metrics = OrderedDict()
         for met_name, met_fn in self.metrics.items():
+            if self._training and met_name in self._eval_metrics:
+                continue
             try:
                 metrics[met_name] = met_fn(inputs, outputs)
             # I know its super broad, but basically if metrics fail during training, I want to just ignore them...
@@ -480,9 +508,9 @@ class BaseProcess(object):
         def _validation(epoch, iteration=None):
             _metrics = self.evaluate(validation_dataset, **loader_kwargs)
             if iteration is not None:
-                self.standard_logging(_metrics, "Epoch {} - Iteration {}".format(epoch, iteration))
+                self.standard_logging(_metrics, "Validation: Epoch {} - Iteration {}".format(epoch, iteration))
             else:
-                self.standard_logging(_metrics, "End of Epoch {}".format(epoch))
+                self.standard_logging(_metrics, "Validation: End of Epoch {}".format(epoch))
             _metrics['epoch'] = epoch
             validation_log.append(_metrics)
             return _metrics

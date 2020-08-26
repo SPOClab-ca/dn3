@@ -45,20 +45,21 @@ def dn3_sklearn_metric(func):
         outputs = _get_prediction(outputs)
         y_p = _handle_cropped(outputs.detach().cpu().numpy()).argmax(-1)
         y_t = inputs[-1].detach().cpu().numpy()
-        return func(y_t, y_p)
+        return func(y_t, y_p, **kwargs)
     return wrapper
 
 
 def binarize(func):
     @functools.wraps(func)
     def wrapper(y_t, y_p, **kwargs):
+        y_p = _get_prediction(y_p)
         y_p = _binarize_two_class(y_p)
-        return func(y_t, y_p)
+        return func(y_t, y_p, **kwargs)
     return wrapper
 
 
-@dn3_sklearn_metric
 @binarize
+@dn3_sklearn_metric
 def auroc(y_t, y_p):
     return skmetrics.roc_auc_score(y_t, y_p)
 

@@ -1,4 +1,4 @@
-from dn3.transforms.basic import BaseTransform
+from dn3.transforms.instance import InstanceTransform
 
 
 class Preprocessor:

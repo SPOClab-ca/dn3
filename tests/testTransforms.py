@@ -5,9 +5,9 @@ import torch
 
 from dn3.utils import min_max_normalize
 from dn3.transforms.channels import DEEP_1010_CHS_LISTING, stringify_channel_mapping
-from dn3.transforms.basic import ZScore, MappingDeep1010, TemporalInterpolation
 from tests.dummy_data import create_dummy_dataset, retrieve_underlying_dummy_data, EVENTS, check_epoch_against_data
 
+from dn3.transforms.instance import ZScore, MappingDeep1010, TemporalInterpolation
 
 def simple_zscoring(data: torch.Tensor):
     return (data - data.mean()) / data.std()
@@ -17,7 +17,7 @@ def _check_zscored_trial(event_id):
     return simple_zscoring(retrieve_underlying_dummy_data(event_id))
 
 
-class TestTransforms(unittest.TestCase):
+class TestInstanceTransforms(unittest.TestCase):
 
     def setUp(self) -> None:
         mne.set_log_level(False)
