@@ -1,6 +1,6 @@
 from .layers import *
 from dn3.data.dataset import DN3ataset
-from dn3.transforms.basic import BaseTransform
+from dn3.transforms.instance import InstanceTransform
 from dn3.transforms.channels import map_named_channels_deep_1010, DEEP_1010_CHS_LISTING, SCALE_IND
 
 from .processes import BaseProcess, StandardClassification
