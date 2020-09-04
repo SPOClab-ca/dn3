@@ -1,8 +1,9 @@
 import re
 from sys import gettrace
 
+from dn3.data.dataset import DN3ataset
 from dn3.utils import LabelSmoothedCrossEntropyLoss
-from dn3.trainable.models import DN3BaseModel, Classifier
+from dn3.trainable.models import Classifier
 from dn3.transforms.batch import BatchTransform
 
 # Swap these two for Ipython/Jupyter
@@ -393,6 +394,9 @@ class BaseProcess(object):
         # Only shuffle and drop last when training
         loader_kwargs.setdefault('shuffle', training)
         loader_kwargs.setdefault('drop_last', training)
+
+        if isinstance(dataset, DN3ataset) and loader_kwargs.get('num_workers', 0) > 0:
+            loader_kwargs['worker_init_fn'] = dataset.multi_proc_init
 
         return DataLoader(dataset, **loader_kwargs)
 

@@ -22,12 +22,29 @@ class DN3ataset(TorchDataset):
     def __init__(self):
         self._transforms = list()
         self._safe_mode = False
+        self._mutli_proc_start = None
+        self._mutli_proc_end = None
 
     def __getitem__(self, item):
         raise NotImplementedError
 
+    @staticmethod
+    def multi_proc_init(worker_id):
+        worker_info = torch.utils.data.get_worker_info()
+        dataset = worker_info.dataset  # the dataset copy in this worker process
+        overall_start = 0
+        overall_end = len(dataset)
+
+        per_worker = int(np.ceil((overall_end - overall_start) / float(worker_info.num_workers)))
+        worker_id = worker_info.id
+        dataset._multi_proc_start = overall_start + worker_id * per_worker
+        dataset._multi_proc_end = min(dataset.start + per_worker, overall_end)
+
     def __iter__(self):
-        return (self[i] for i in range(len(self)))
+        start = 0 if self._mutli_proc_start is None else self._mutli_proc_start
+        end = len(self) if self._mutli_proc_end is None else self._mutli_proc_end
+
+        return (self[i] for i in range(start, end))
 
     def __len__(self):
         raise NotImplementedError
