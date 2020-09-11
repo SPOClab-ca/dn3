@@ -41,7 +41,7 @@ class DonchinSpeller(BaseProcess):
 class TVector(Classifier):
 
     def __init__(self, num_target_people=None, channels=len(DEEP_1010_CHS_LISTING), hidden_size=384, dropout=0.1,
-                 ignored_inds=(SCALE_IND,), incoming_channels=None):
+                 ignored_inds=(SCALE_IND,), incoming_channels=None, norm_groups=16):
         self.hidden_size = hidden_size
         self.num_target_people = num_target_people
         self.dropout = dropout
@@ -53,7 +53,7 @@ class TVector(Classifier):
             return nn.Sequential(
                 nn.Conv1d(in_ch, out_ch, kernel_size=kernel, dilation=dilation),
                 nn.ReLU(),
-                nn.BatchNorm1d(out_ch),
+                nn.GroupNorm(norm_groups, out_ch),
                 nn.Dropout(dropout),
             )
 
@@ -72,7 +72,7 @@ class TVector(Classifier):
         return nn.Sequential(
             nn.Linear(in_ch, out_ch),
             nn.ReLU(),
-            nn.BatchNorm1d(out_ch),
+            nn.LayerNorm(out_ch),
             nn.Dropout(self.dropout),
         )
 
@@ -162,7 +162,7 @@ class ClassificationWithTVectors(StandardClassification):
         return self.meta_classifier(added)
 
 
-class TVectorConcatenation(BaseTransform):
+class TVectorConcatenation(InstanceTransform):
 
     def __init__(self, t_vector_model):
         if isinstance(t_vector_model, TVector):
