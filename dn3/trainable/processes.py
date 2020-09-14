@@ -302,7 +302,7 @@ class BaseProcess(object):
         """
         self.train(False)
         loader_kwargs.setdefault('batch_size', 1)
-        dataset = self._check_make_dataloader(dataset, training=False, **loader_kwargs)
+        dataset = self._make_dataloader(dataset, **loader_kwargs)
 
         pbar = tqdm.trange(len(dataset), desc="Predicting")
         data_iterator = iter(dataset)
@@ -385,20 +385,21 @@ class BaseProcess(object):
 
         return best_checkpoint
 
-    @staticmethod
-    def _check_make_dataloader(dataset, training=False, **loader_kwargs):
+    def _dataloader_args(self, dataset, **loader_kwargs):
+        # Only shuffle and drop last when training
+        loader_kwargs.setdefault('shuffle', self._training)
+        loader_kwargs.setdefault('drop_last', self._training)
+        if isinstance(dataset, DN3ataset) and loader_kwargs.get('num_workers', 0) > 0:
+            loader_kwargs['worker_init_fn'] = dataset.multi_proc_init
+
+        return loader_kwargs
+
+    def _make_dataloader(self, dataset, **loader_kwargs):
         """Any args that make more sense as a convenience function to be set"""
         if isinstance(dataset, DataLoader):
             return dataset
 
-        # Only shuffle and drop last when training
-        loader_kwargs.setdefault('shuffle', training)
-        loader_kwargs.setdefault('drop_last', training)
-
-        if isinstance(dataset, DN3ataset) and loader_kwargs.get('num_workers', 0) > 0:
-            loader_kwargs['worker_init_fn'] = dataset.multi_proc_init
-
-        return DataLoader(dataset, **loader_kwargs)
+        return DataLoader(dataset, **self._dataloader_args(**loader_kwargs))
 
     def fit(self, training_dataset, epochs=1, validation_dataset=None, step_callback=None,
             resume_epoch=None, resume_iteration=None, log_callback=None,
@@ -464,8 +465,7 @@ class BaseProcess(object):
         """
         loader_kwargs.setdefault('batch_size', batch_size)
         loader_kwargs = self._optimize_dataloader_kwargs(**loader_kwargs)
-        training_dataset = self._check_make_dataloader(training_dataset, training=True, **loader_kwargs)
-        # validation_dataset = _check_make_dataloader(validation_dataset, **loader_kwargs)
+        training_dataset = self._make_dataloader(training_dataset, **loader_kwargs)
 
         if resume_epoch is None:
             if resume_iteration is None or resume_iteration < len(training_dataset):
@@ -678,15 +678,13 @@ class StandardClassification(BaseProcess):
                                                        balance_method=balance_method,
                                                        **loader_kwargs)
 
-    @staticmethod
-    def _check_make_dataloader(dataset, training=False, **loader_kwargs):
+    def _make_dataloader(self, dataset, **loader_kwargs):
         if isinstance(dataset, DataLoader):
             return dataset
 
-        # Only shuffle and drop last when training
-        loader_kwargs.setdefault('drop_last', training)
+        loader_kwargs = self._dataloader_args(dataset, **loader_kwargs)
 
-        if training and loader_kwargs.get('sampler', None) is None and loader_kwargs.get('balance_method', None) \
+        if self._training and loader_kwargs.get('sampler', None) is None and loader_kwargs.get('balance_method', None) \
                 is not None:
             method = loader_kwargs.pop('balance_method')
             assert method.lower() in ['undersample', 'oversample']
@@ -699,11 +697,8 @@ class StandardClassification(BaseProcess):
                     else balanced_oversampling(dataset)
                 return DataLoader(dataset, sampler=sampler, **loader_kwargs)
 
-        # Make sure balance method doesn't not passed to DataLoader at this point.
+        # Make sure balance method is not passed to DataLoader at this point.
         loader_kwargs.pop('balance_method', None)
-
-        # Shuffle if not already specifying weighted sampler
-        loader_kwargs.setdefault('shuffle', training)
 
         return DataLoader(dataset, **loader_kwargs)
 

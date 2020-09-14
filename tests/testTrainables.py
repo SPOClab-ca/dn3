@@ -58,7 +58,7 @@ class TestSimpleClassifier(unittest.TestCase):
 
         train_log, eval_log = trainable.fit(loader, epochs=self._NUM_EPOCHS, step_callback=check_train_mode,
                                             validation_dataset=loader, epoch_callback=check_eval_mode,
-                                            validation_interval=60)
+                                            validation_interval=60, num_workers=4)
         sys.stdout = sys.__stdout__
 
         with self.subTest("validation-interval"):
