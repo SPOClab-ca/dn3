@@ -2,6 +2,7 @@ import unittest
 
 from copy import deepcopy
 from dn3.data.utils import MultiDatasetContainer
+from dn3.transforms.instance import ZScore
 from tests.dummy_data import *
 
 
@@ -222,6 +223,15 @@ class TestDatasetUtils(unittest.TestCase):
             multi = MultiDatasetContainer(self.dataset, ds_copy, return_dataset_ids=True)
             self.assertEqual(multi[0][-1], self.DS_ID)
             self.assertEqual(multi[len(self.dataset)][-1], self.DS_ID+1)
+
+    def test_ToNumpy(self):
+        # Make sure it works with transforms
+        self.dataset.add_transform(ZScore())
+        np_data = self.dataset.to_numpy(num_workers=0)
+
+        # data + 4 ids + target
+        self.assertEqual(len(np_data), 1 + 4 + 1)
+        self.assertTrue(np.all([arr.shape[0] == len(self.dataset) for arr in np_data]))
 
 
 if __name__ == '__main__':

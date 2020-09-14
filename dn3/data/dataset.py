@@ -2,6 +2,7 @@ import mne
 import torch
 import copy
 import bisect
+import tqdm
 import numpy as np
 
 from dn3.transforms.preprocessors import Preprocessor
@@ -12,7 +13,7 @@ from abc import ABC
 from collections import OrderedDict
 from collections.abc import Iterable
 from torch.utils.data import Dataset as TorchDataset
-from torch.utils.data import ConcatDataset
+from torch.utils.data import ConcatDataset, DataLoader
 
 
 class DN3ataset(TorchDataset):
@@ -129,6 +130,53 @@ class DN3ataset(TorchDataset):
                        The preprocessor after application to all relevant thinkers
         """
         raise NotImplementedError
+
+    def to_numpy(self, batch_size=64, batch_transforms: list = None, num_workers=4, **dataloader_kwargs):
+        """
+        Commits the dataset to numpy-formatted arrays. Useful for saving dataset to disk, or preparing for tools that
+        expect numpy-formatted data rather than iteratable.
+
+        Notes
+        -----
+        A pytorch :any:`DataLoader` is used to fetch the data to conveniently leverage multiprocessing, and naturally
+
+        Parameters
+        ----------
+        batch_size: int
+                   The number of items to fetch per worker. This probably doesn't need much tuning.
+        num_workers: int
+                     The number of spawned processes to fetch and transform data.
+        batch_transforms: list
+                         These are potential batch-level transforms that
+        dataloader_kwargs: dict
+                          Keyword arguments for the pytorch :any:`DataLoader` that underpins the fetched data
+
+        Returns
+        -------
+        data: list
+              A list of numpy arrays.
+        """
+        dataloader_kwargs.setdefault('batch_size', batch_size)
+        dataloader_kwargs.setdefault('num_workers', num_workers)
+        dataloader_kwargs.setdefault('shuffle', False)
+        dataloader_kwargs.setdefault('drop_last', False)
+
+        batch_transforms = list() if batch_transforms is None else batch_transforms
+
+        loaded = None
+        loader = DataLoader(self, **dataloader_kwargs)
+        for batch in tqdm.tqdm(loader, desc="Loading Batches"):
+            for xform in batch_transforms:
+                assert callable(xform)
+                batch = xform(batch)
+            # cpu just to be certain, shouldn't affect things otherwise
+            batch = [b.cpu().numpy() for b in batch]
+            if loaded is None:
+                loaded = batch
+            else:
+                loaded = [np.concatenate([loaded[i], batch[i]], axis=0) for i in range(len(batch))]
+
+        return loaded
 
 
 class _Recording(DN3ataset, ABC):
@@ -879,7 +927,7 @@ class Dataset(DN3ataset, ConcatDataset):
             like_me = self.thinkers[people[0]].clone()
         else:
             dataset_id = self.dataset_id.item() if self.dataset_id is not None else None
-            task_id = self.task_id.item() if self.dataset_id is not None else None
+            task_id = self.task_id.item() if self.task_id is not None else None
 
             like_me = Dataset({p: self.thinkers[p] for p in people}, dataset_id, task_id,
                               return_person_id=self.return_person_id, return_session_id=self.return_session_id,

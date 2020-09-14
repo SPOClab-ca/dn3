@@ -187,6 +187,21 @@ class TemporalInterpolation(InstanceTransform):
             return old_sfreq
 
 
+class CropAndUpSample(TemporalInterpolation):
+
+    def __init__(self, original_sequence_length, crop_sequence_min):
+        super().__init__(original_sequence_length)
+        self.crop_sequence_min = crop_sequence_min
+
+    def __call__(self, x):
+        crop_len = np.random.randint(low=self.crop_sequence_min, high=self._new_sequence_length)
+        crop_offset = np.random.randint(low=0, high=self._new_sequence_length-self.crop_sequence_min)
+        return super(CropAndUpSample, self).__call__(x[:, crop_offset:crop_offset+crop_len])
+
+    def new_sequence_length(self, old_sequence_length):
+        return old_sequence_length
+
+
 class MappingDeep1010(InstanceTransform):
     """
     Maps various channel sets into the Deep10-10 scheme, and normalizes data between [-1, 1] with an additional scaling

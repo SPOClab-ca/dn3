@@ -128,9 +128,9 @@ class ClassificationWithTVectors(StandardClassification):
         super(ClassificationWithTVectors, self).build_network(**kwargs)
         self.tvector_model.train(False)
         incoming = self.classifier.num_features_for_classification
-        self.attn_tvect = torch.ones((self.tvector_model.num_features_for_classification,
-                                      self.classifier.num_features_for_classification),
-                                     requires_grad=True, device=self.device)
+        self.attn_tvect = torch.nn.Parameter(torch.ones((self.tvector_model.num_features_for_classification,
+                                                         self.classifier.num_features_for_classification),
+                                                        requires_grad=True, device=self.device))
         self.meta_classifier = nn.Sequential(
             Flatten(),
             nn.BatchNorm1d(incoming),
@@ -173,10 +173,11 @@ class TVectorConcatenation(InstanceTransform):
             self.tvect.load(t_vector_model)
         # ensure not in training mode
         self.tvect.train(False)
+        for p in self.tvect.parameters():
+            p.requires_grad = False
         super(TVectorConcatenation, self).__init__()
 
-    def __call__(self, *x):
-        x = x[0]
+    def __call__(self, x):
         channels, sequence_length = x.shape
         tvector = self.tvect.features_forward(x).view(-1, 1)
         return torch.cat((tvector.expand(-1, sequence_length), x), dim=0)
