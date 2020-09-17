@@ -265,3 +265,62 @@ class MappingDeep1010(InstanceTransform):
             else:
                 channels.append(None)
         return np.array(list(zip(channels, DEEP_1010_CH_TYPES)))
+
+
+class MaskAuxiliariesDeep1010(InstanceTransform):
+
+    MASK_THESE = REF_INDS + EOG_INDS + EXTRA_INDS
+
+    def __init__(self, randomize=False):
+        super(MaskAuxiliariesDeep1010, self).__init__()
+        self.randomize = randomize
+
+    def __call__(self, x):
+        if self.randomize:
+            x[self.MASK_THESE, :] = 2 * torch.rand_like(x[self.MASK_THESE, :]) - 1
+        else:
+            x[self.MASK_THESE] = 0
+        return x
+
+
+class NoisyBlankDeep1010(InstanceTransform):
+    """
+
+    """
+
+    def __init__(self, mask_index=1, purge_mask=False):
+        super().__init__(only_trial_data=False)
+        self.mask_index = mask_index
+        self.purge_mask = purge_mask
+
+    def __call__(self, *x):
+        assert isinstance(x, (list, tuple)) and len(x) > 1
+        x = list(x)
+        blanks = x[0][~x[self.mask_index], :]
+        x[0][~x[self.mask_index], :] = 2 * torch.rand_like(blanks) - 1
+        if self.purge_mask:
+            x = x.pop(self.mask_index)
+        return x
+
+
+class AdditiveEogDeep1010(InstanceTransform):
+
+    EEG_IND_END = EOG_INDS[0] - 1
+
+    def __init__(self, p=0.1, max_intensity=0.3, blank_eog_p=1.0):
+        super().__init__()
+        self.max_intensity = max_intensity
+        self.p = p
+        self.blanking_p = blank_eog_p
+
+    def __call__(self, x):
+        affected_inds = (torch.rand(EOG_INDS[0] - 1).lt(self.p)).nonzero()
+        for which_eog in EOG_INDS:
+            this_affected_ids = affected_inds[torch.rand_like(affected_inds.float()).lt(0.25)]
+            x[this_affected_ids, :] = self.max_intensity * torch.rand_like(this_affected_ids.float()).unsqueeze(-1) *\
+                                      x[which_eog]
+            # Short circuit the random call as these are more frequent
+            if self.blanking_p != 0 and (self.blanking_p == 1 or torch.rand(1) < self.blanking_p):
+                x[which_eog, :] = 0
+        return x
+

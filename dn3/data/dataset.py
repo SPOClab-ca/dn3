@@ -29,24 +29,6 @@ class DN3ataset(TorchDataset):
     def __getitem__(self, item):
         raise NotImplementedError
 
-    @staticmethod
-    def multi_proc_init(worker_id):
-        worker_info = torch.utils.data.get_worker_info()
-        dataset = worker_info.dataset  # the dataset copy in this worker process
-        overall_start = 0
-        overall_end = len(dataset)
-
-        per_worker = int(np.ceil((overall_end - overall_start) / float(worker_info.num_workers)))
-        worker_id = worker_info.id
-        dataset._multi_proc_start = overall_start + worker_id * per_worker
-        dataset._multi_proc_end = min(dataset.start + per_worker, overall_end)
-
-    def __iter__(self):
-        start = 0 if self._mutli_proc_start is None else self._mutli_proc_start
-        end = len(self) if self._mutli_proc_end is None else self._mutli_proc_end
-
-        return (self[i] for i in range(start, end))
-
     def __len__(self):
         raise NotImplementedError
 
@@ -516,11 +498,11 @@ class Thinker(DN3ataset, ConcatDataset):
     def __getitem__(self, item, return_id=False):
         x = list(ConcatDataset.__getitem__(self, item))
         session_idx = bisect.bisect_right(self.cumulative_sizes, item)
+        if self.return_session_id:
+            x.insert(1, torch.tensor(session_idx).long())
         if self.return_trial_id:
             trial_id = item if session_idx == 0 else item - self.cumulative_sizes[session_idx-1]
             x.insert(1, torch.tensor(trial_id).long())
-        if self.return_session_id:
-            x.insert(1, torch.tensor(session_idx).long())
         return self._execute_transforms(*x)
 
     def __len__(self):

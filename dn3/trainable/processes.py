@@ -389,8 +389,6 @@ class BaseProcess(object):
         # Only shuffle and drop last when training
         loader_kwargs.setdefault('shuffle', self._training)
         loader_kwargs.setdefault('drop_last', self._training)
-        if isinstance(dataset, DN3ataset) and loader_kwargs.get('num_workers', 0) > 0:
-            loader_kwargs['worker_init_fn'] = dataset.multi_proc_init
 
         return loader_kwargs
 
