@@ -386,19 +386,20 @@ class BaseProcess(object):
 
         return best_checkpoint
 
-    def _dataloader_args(self, dataset, **loader_kwargs):
+    @staticmethod
+    def _dataloader_args(dataset, training=False, **loader_kwargs):
         # Only shuffle and drop last when training
-        loader_kwargs.setdefault('shuffle', self._training)
-        loader_kwargs.setdefault('drop_last', self._training)
+        loader_kwargs.setdefault('shuffle', training)
+        loader_kwargs.setdefault('drop_last', training)
 
         return loader_kwargs
 
-    def _make_dataloader(self, dataset, **loader_kwargs):
+    def _make_dataloader(self, dataset, training=False, **loader_kwargs):
         """Any args that make more sense as a convenience function to be set"""
         if isinstance(dataset, DataLoader):
             return dataset
 
-        return DataLoader(dataset, **self._dataloader_args(**loader_kwargs))
+        return DataLoader(dataset, **self._dataloader_args(dataset, training, **loader_kwargs))
 
     def fit(self, training_dataset, epochs=1, validation_dataset=None, step_callback=None,
             resume_epoch=None, resume_iteration=None, log_callback=None,
@@ -677,11 +678,11 @@ class StandardClassification(BaseProcess):
                                                        balance_method=balance_method,
                                                        **loader_kwargs)
 
-    def _make_dataloader(self, dataset, **loader_kwargs):
+    def _make_dataloader(self, dataset, training=False, **loader_kwargs):
         if isinstance(dataset, DataLoader):
             return dataset
 
-        loader_kwargs = self._dataloader_args(dataset, **loader_kwargs)
+        loader_kwargs = self._dataloader_args(dataset, training=training, **loader_kwargs)
 
         if self._training and loader_kwargs.get('sampler', None) is None and loader_kwargs.get('balance_method', None) \
                 is not None:
