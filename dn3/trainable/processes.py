@@ -91,6 +91,7 @@ class BaseProcess(object):
         assert isinstance(optimizer, torch.optim.Optimizer)
         del self.optimizer
         self.optimizer = optimizer
+        self.lr = float(self.optimizer.param_groups[0]['lr'])
 
     def set_scheduler(self, scheduler):
         """
