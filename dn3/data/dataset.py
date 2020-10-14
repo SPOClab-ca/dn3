@@ -233,7 +233,7 @@ class RawTorchRecording(_Recording):
     """
 
     def __init__(self, raw: mne.io.Raw, tlen, session_id=0, person_id=0, stride=1, ch_ind_picks=None, decimate=1,
-                 **kwargs):
+                 bad_spans=None, **kwargs):
 
         """
         Interface for bridging mne Raw instances as PyTorch compatible "Dataset".
@@ -243,7 +243,7 @@ class RawTorchRecording(_Recording):
         raw : mne.io.Raw
               Raw data, data does not need to be preloaded.
         tlen : float
-              Length of recording specified in seconds.
+              Length of each retrieved portion of the recording.
         session_id : (int, str, optional)
               A unique (with respect to a thinker within an eventual dataset) identifier for the current recording
               session. If not specified, defaults to '0'.
@@ -256,6 +256,9 @@ class RawTorchRecording(_Recording):
         decimate : int
                    The number of samples to move before taking the next sample, in other words take every decimate'th
                    sample.
+        bad_spans: List[tuple], None
+                   These are tuples of (start_seconds, end_seconds) of times that should be avoided. Any sequences that
+                   would overlap with these sections will be excluded.
         """
         super().__init__(raw.info, session_id, person_id, tlen, ch_ind_picks)
         self.filename = raw.filenames[0]
@@ -264,24 +267,36 @@ class RawTorchRecording(_Recording):
         self._recording_len = int(tlen * self._recording_sfreq)
         self.stride = stride
         # Implement my own (rather than mne's) in-memory buffer when there are savings
-        self._stride_load = self.decimate > 1 or (stride > self.sequence_length and raw.preload)
+        self._stride_load = self.decimate > 1 or (stride > self._recording_len and raw.preload)
         self.max = kwargs.get('max', None)
         self.min = kwargs.get('min', 0)
+        bad_spans = list() if bad_spans is None else bad_spans
         self.__dict__.update(kwargs)
 
-        self._num_sequences = max(0, ((raw.n_times // self.decimate) - self.sequence_length) // self.stride)
+        self._decimated_sequence_starts = list(
+            range(0, raw.n_times // self.decimate - self._recording_len, self.stride)
+        )
+        # TODO come back to this inefficient BS
+        for start, stop in bad_spans:
+            start = int(self._recording_sfreq * start)
+            stop = int(stop * self._recording_sfreq)
+            drop = list()
+            for i, span_start in enumerate(self._decimated_sequence_starts):
+                if start <= span_start < stop or start <= span_start + self._recording_len <= stop:
+                    drop.append(i)
+            for i in drop:
+                self._decimated_sequence_starts.remove(i)
 
         # When the stride is greater than the sequence length, preload savings can be found by chopping the
         # sequence into subsequences of length sequence length. Also, if decimating, can significantly reduce memory
         # requirements not otherwise addressed with the Raw object.
-        if self._stride_load and self._num_sequences > 0:
+        if self._stride_load and len(self._decimated_sequence_starts) > 0:
             x = raw.get_data(self.picks)
             # pre-decimate this data for more preload savings (and for the stride factors to be valid)
             x = x[:, ::decimate]
-            self._x = np.empty([x.shape[0], self.sequence_length, self._num_sequences], dtype=x.dtype)
-            for i in range(self._num_sequences):
-                t = i * stride
-                self._x[..., i] = x[:, t:t+self.sequence_length]
+            self._x = np.empty([x.shape[0], self._recording_len, len(self._decimated_sequence_starts)], dtype=x.dtype)
+            for i, start in enumerate(self._decimated_sequence_starts):
+                self._x[..., i] = x[:, start:start + self._recording_len]
         else:
             self._raw_workaround(raw)
 
@@ -295,8 +310,8 @@ class RawTorchRecording(_Recording):
         if self._stride_load:
             x = self._x[:, :, index]
         else:
-            index *= self.stride * self.decimate
-            x = self.raw.get_data(self.picks, start=index, stop=index+(self.sequence_length*self.decimate))
+            start = self._decimated_sequence_starts[index]
+            x = self.raw.get_data(self.picks, start=start, stop=start + self._recording_len * self.decimate)
             if self.decimate > 1:
                 x = x[:, ::self.decimate]
 
@@ -314,7 +329,7 @@ class RawTorchRecording(_Recording):
         return self._execute_transforms(x)
 
     def __len__(self):
-        return self._num_sequences
+        return len(self._decimated_sequence_starts)
 
     def preprocess(self, preprocessor: Preprocessor, apply_transform=True):
         self.raw = preprocessor(recording=self)
@@ -324,9 +339,10 @@ class RawTorchRecording(_Recording):
 
 class EpochTorchRecording(_Recording):
     def __init__(self, epochs: mne.Epochs, session_id=0, person_id=0, force_label=None, cached=False,
-                 ch_ind_picks=None, event_mapping=None):
+                 ch_ind_picks=None, event_mapping=None, skip_epochs=None):
         """
         Wraps :any:`Epoch` objects so that they conform to the :any:`Recording` structure.
+
         Parameters
         ----------
         epochs
@@ -337,6 +353,8 @@ class EpochTorchRecording(_Recording):
         ch_ind_picks
         event_mapping : dict, Optional
                         Mapping of human-readable names to numeric codes used by `epochs`.
+        skip_epochs: List[int]
+                    A list of epochs to skip
         """
         super().__init__(epochs.info, session_id, person_id, epochs.tmax - epochs.tmin + 1 / epochs.info['sfreq'],
                          ch_ind_picks)
@@ -348,8 +366,12 @@ class EpochTorchRecording(_Recording):
             event_mapping = epochs.event_id
         reverse_mapping = {v: k for k, v in event_mapping.items()}
         self.epoch_codes_to_class_labels = {v: i for i, v in enumerate(sorted(reverse_mapping.keys()))}
+        skip_epochs = list() if skip_epochs is None else skip_epochs
+        self._skip_map = [i for i in range(len(self.epochs.events)) if i not in skip_epochs]
+        self._skip_map = dict(zip(range(len(self._skip_map)), self._skip_map))
 
     def __getitem__(self, index):
+        index = self._skip_map[index]
         ep = self.epochs[index]
 
         if self._cache is None or self._cache[index] is None:
@@ -372,7 +394,7 @@ class EpochTorchRecording(_Recording):
         return self._execute_transforms(x, y)
 
     def __len__(self):
-        return len(self.epochs.events)
+        return len(self._skip_map)
 
     def preprocess(self, preprocessor: Preprocessor, apply_transform=True):
         self.epochs = preprocessor(recording=self)
@@ -392,7 +414,7 @@ class EpochTorchRecording(_Recording):
 
     def get_targets(self):
         return np.apply_along_axis(lambda x: self.epoch_codes_to_class_labels[x[0]], 1,
-                                   self.epochs.events[:, -1, np.newaxis]).squeeze()
+                                   self.epochs.events[list(self._skip_map.values()), -1, np.newaxis]).squeeze()
 
 
 class Thinker(DN3ataset, ConcatDataset):
@@ -498,11 +520,11 @@ class Thinker(DN3ataset, ConcatDataset):
     def __getitem__(self, item, return_id=False):
         x = list(ConcatDataset.__getitem__(self, item))
         session_idx = bisect.bisect_right(self.cumulative_sizes, item)
-        if self.return_session_id:
-            x.insert(1, torch.tensor(session_idx).long())
         if self.return_trial_id:
             trial_id = item if session_idx == 0 else item - self.cumulative_sizes[session_idx-1]
             x.insert(1, torch.tensor(trial_id).long())
+        if self.return_session_id:
+            x.insert(1, torch.tensor(session_idx).long())
         return self._execute_transforms(*x)
 
     def __len__(self):

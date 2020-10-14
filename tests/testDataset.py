@@ -63,6 +63,30 @@ class TestSessionsDummyData(unittest.TestCase):
             self.assertTrue(check_epoch_against_data(x, i))
             self.assertEqual(torch.tensor(label) - 1, y)
 
+    def test_RawRecordingSkipGet(self):
+        num_skips = 2
+        recording = self.make_raw_recording(picks=[0, 1], bad_spans=[(0, num_skips / SFREQ)])
+        for i, offset in ((0, num_skips), (5, 5 + num_skips), (-1, (END_POINT - 1) * SFREQ - 1)):
+            self.assertTrue(check_raw_against_data(recording[i][0], int(offset)))
+
+    def test_RawRecordingSkipGetDecimated(self):
+        decimate = 3
+        num_skips = 2
+        decimated_sfreq = SFREQ / decimate
+        recording = self.make_raw_recording(picks=[0, 1], decimate=decimate, bad_spans=[(0, num_skips/decimated_sfreq)])
+        for i, offset in ((0, num_skips), (5, 5+num_skips), (-1, (END_POINT - 1) * decimated_sfreq - 1)):
+            self.assertTrue(check_raw_against_data(recording[i][0], int(offset), decimate=decimate))
+
+    def test_EpochRecordingSkipGet(self):
+        to_skip = [0, 3]
+        new_events = [(i, ev) for i, ev in enumerate(EVENTS) if i not in to_skip]
+        recording = self.make_epoch_recording(skip_epochs=to_skip)
+
+        for modified_index, (true_index, (sample, label)) in enumerate(new_events):
+            x, y = recording[modified_index]
+            self.assertTrue(check_epoch_against_data(x, true_index))
+            self.assertEqual(torch.tensor(label) - 1, y)
+
 
 class TestThinkersDummyData(unittest.TestCase):
 

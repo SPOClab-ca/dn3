@@ -328,7 +328,33 @@ exclude_sessions *(list)*
   matching *within quotations* (*, ?, [seq], [!seq]).
 
 exclude *(map/dict)*
+  This is a more extensively formatted version of `exclude_people` and `exclude_sessions` from above. Here, people,
+  sessions and timespans (specified in seconds) can be excluded using a hierarchical representation. The easiest way to
+  understand this is by example. Consider:
 
+  .. code-block:: yaml
+
+        exclude_people:
+          - Person01
+        exclude:
+          Person02: ~
+          Person03: ~
+            Session01: ~
+          Person04:
+            Session01:
+              - [0, 0.5]
+            Session02:
+              - [0, 0.5]
+              - [100, 120]
+
+  The above says that *Person01* and *Person02* should both be completely ignored. *Session01* from *Person03* should be
+  similarly ignored (with any other *Person03* session left available). Finally for *Person04* the data between
+  0 and 0.5 seconds of *Session01* in addition to both the times between 0 and 0.5 and 100 and 120 seconds from
+  *Session02* should be ignored.
+
+  In summary, it allows more fine-grained exclusion **without pattern matching**, and can be used in conjunction with
+  the other exclusion options. For those familiar with MNE's *bads* system, it is not used here, this allows for config
+  files to be shared rather than annotated copies of the original data. Further, this allows
 
 Experimental/Risky Options
 --------------------------
