@@ -465,7 +465,7 @@ class BaseProcess(object):
         """
         loader_kwargs.setdefault('batch_size', batch_size)
         loader_kwargs = self._optimize_dataloader_kwargs(**loader_kwargs)
-        training_dataset = self._make_dataloader(training_dataset, **loader_kwargs)
+        training_dataset = self._make_dataloader(training_dataset, training=True, **loader_kwargs)
 
         if resume_epoch is None:
             if resume_iteration is None or resume_iteration < len(training_dataset):
@@ -684,7 +684,7 @@ class StandardClassification(BaseProcess):
 
         loader_kwargs = self._dataloader_args(dataset, training=training, **loader_kwargs)
 
-        if self._training and loader_kwargs.get('sampler', None) is None and loader_kwargs.get('balance_method', None) \
+        if training and loader_kwargs.get('sampler', None) is None and loader_kwargs.get('balance_method', None) \
                 is not None:
             method = loader_kwargs.pop('balance_method')
             assert method.lower() in ['undersample', 'oversample']
@@ -695,6 +695,8 @@ class StandardClassification(BaseProcess):
             else:
                 sampler = balanced_undersampling(dataset) if method.lower() == 'undersample' \
                     else balanced_oversampling(dataset)
+                # Shuffle is implied by the balanced sampling
+                loader_kwargs['shuffle'] = None
                 return DataLoader(dataset, sampler=sampler, **loader_kwargs)
 
         # Make sure balance method is not passed to DataLoader at this point.
@@ -708,15 +710,21 @@ def _get_label_balance(dataset):
     counts = np.bincount(labels)
     train_weights = 1. / torch.tensor(counts, dtype=torch.float)
     sample_weights = train_weights[labels]
-    tqdm.tqdm.write('Class frequency: {}'.format(counts/counts.sum()))
+    class_freq = counts/counts.sum()
+    if len(counts) < 10:
+        tqdm.tqdm.write('Class frequency: {}'.format(' | '.join('{:.2f}'.format(c) for c in class_freq)))
+    else:
+        tqdm.tqdm.write("Class frequencies range from {:.2e} to {:.2e}".format(class_freq.min(), class_freq.max()))
     return sample_weights, counts
 
 
 def balanced_undersampling(dataset, replacement=False):
+    tqdm.tqdm.write("Undersampling for balanced distribution.")
     sample_weights, counts = _get_label_balance(dataset)
     return WeightedRandomSampler(sample_weights, len(counts) * int(counts.min()), replacement=replacement)
 
 
 def balanced_oversampling(dataset, replacement=True):
+    tqdm.tqdm.write("Oversampling for balanced distribution.")
     sample_weights, counts = _get_label_balance(dataset)
     return WeightedRandomSampler(sample_weights, len(counts) * int(counts.max()), replacement=replacement)

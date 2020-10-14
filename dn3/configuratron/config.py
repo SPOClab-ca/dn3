@@ -9,7 +9,7 @@ from parse import search
 from fnmatch import fnmatch
 from pathlib import Path
 from collections import OrderedDict
-from mne import pick_types, read_annotations
+from mne import pick_types, read_annotations, set_log_level
 
 from dn3.data.dataset import Dataset, RawTorchRecording, EpochTorchRecording, Thinker, DatasetInfo
 from dn3.utils import make_epochs_from_raw, DN3ConfigException
@@ -28,6 +28,10 @@ _SUPPORTED_EXTENSIONS = {
 }
 
 YamlIncludeConstructor.add_to_loader_class(loader_class=yaml.FullLoader)
+
+# Since we are doing a lot of loading in the configuratron, this is nice to suppress some tedious information.
+# Keep in mind, removing this might help debug data loading problems, `mne.set_log_level(True)` to counteract.
+set_log_level(False)
 
 
 class _DumbNamespace:

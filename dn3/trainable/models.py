@@ -28,6 +28,10 @@ class DN3BaseModel(nn.Module):
     def forward(self, x):
         raise NotImplementedError
 
+    def internal_loss(self, forward_pass_tensors):
+
+        return None
+
     def clone(self):
         """
         This provides a standard way to copy models, weights and all.
@@ -193,10 +197,10 @@ class LogRegNetwork(Classifier):
 
 class TIDNet(Classifier):
     """
-    The Thinker Invariant Densenet from Kostas & Rudzicz 2020 (under review).
+    The Thinker Invariant Densenet from Kostas & Rudzicz 2020, https://doi.org/10.1088/1741-2552/abb7a7
 
-    This alone is not strictly "thinker invariant", but it for the most part performs as well as EEGNet, or better
-    when there is abundant data.
+    This alone is not strictly "thinker invariant", but on average outperforms shallower models at inter-subject
+    prediction capability.
     """
 
     def __init__(self, targets, samples, channels, s_growth=24, t_filters=32, do=0.4, pooling=20,

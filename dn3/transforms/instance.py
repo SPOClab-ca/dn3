@@ -194,12 +194,35 @@ class CropAndUpSample(TemporalInterpolation):
         self.crop_sequence_min = crop_sequence_min
 
     def __call__(self, x):
-        crop_len = np.random.randint(low=self.crop_sequence_min, high=self._new_sequence_length)
-        crop_offset = np.random.randint(low=0, high=self._new_sequence_length-self.crop_sequence_min)
-        return super(CropAndUpSample, self).__call__(x[:, crop_offset:crop_offset+crop_len])
+        crop_len = np.random.randint(low=self.crop_sequence_min, high=x.shape[-1])
+        return super(CropAndUpSample, self).__call__(x[:, :crop_len])
 
     def new_sequence_length(self, old_sequence_length):
         return old_sequence_length
+
+
+class CropAndResample(TemporalInterpolation):
+
+    def __init__(self, desired_sequence_length, stdev, truncate=None, mode='nearest', new_sfreq=None):
+        super().__init__(desired_sequence_length, mode=mode, new_sfreq=new_sfreq)
+        self.stdev = stdev
+        self.truncate = float("inf") if truncate is None else truncate
+
+    @staticmethod
+    def trunc_norm(mean, std, max_diff):
+        val = None
+        while val is None or abs(val - mean) > max_diff:
+            val = int(np.random.normal(mean, std))
+        return val
+
+    def new_sequence_length(self, old_sequence_length):
+        return old_sequence_length
+
+    def __call__(self, x):
+        max_diff = min(x.shape[-1] - self._new_sequence_length, self.truncate)
+        assert max_diff > 0
+        offset = self.trunc_norm(self._new_sequence_length, self.stdev, max_diff)
+        return super(CropAndResample, self).__call__(x[:, :offset])
 
 
 class MappingDeep1010(InstanceTransform):

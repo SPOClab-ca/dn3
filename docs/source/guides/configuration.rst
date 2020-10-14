@@ -319,13 +319,16 @@ dataset_id *(int)*
   This allows datasets to be given specific ids. By default, none are provided. If set to an int, this dataset will have
   this integer `dataset_id.
 
-exclude_people *(list)
+exclude_people *(list)*
   List of people (identified by the name of their respective directories) to be ignored. Supports Unix-style pattern
   matching *within quotations* (*, ?, [seq], [!seq]).
 
-exclude_sessions *(list)
+exclude_sessions *(list)*
   List of sessions (files) to be ignored when performing automatic constructions. Supports Unix-style pattern
   matching *within quotations* (*, ?, [seq], [!seq]).
+
+exclude *(map/dict)*
+
 
 Experimental/Risky Options
 --------------------------

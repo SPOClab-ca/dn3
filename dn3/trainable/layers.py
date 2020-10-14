@@ -162,6 +162,25 @@ class SpatialFilter(nn.Module):
         return x + self.residual(res) if self.residual else x
 
 
+class LinearSourceSubtraction(nn.Module):
+
+    def __init__(self, channels, zero_self=True, drop_chs=None):
+        super().__init__()
+        if drop_chs is not None:
+            assert isinstance(drop_chs, (list, tuple))
+        self.drop_chs = drop_chs
+        self.filter = nn.Conv1d(channels, channels, 1, bias=False)
+        self.filter.weight.data.zero_()
+        self.zero_self = nn.Parameter(1 - torch.eye(channels), requires_grad=False) if zero_self else None
+        self.filter_norm = nn.LayerNorm(channels)
+
+    def forward(self, x):
+        if self.zero_self is not None:
+            self.filter.weight.data = self.filter.weight.data * self.zero_self.unsqueeze(-1)
+        x = x - self.filter(x)
+        return self.filter_norm(x.permute([0, 2, 1])).permute([0, 2, 1])
+
+
 class TemporalFilter(nn.Module):
     def __init__(self, channels, filters, depth, temp_len, dropout=0., activation=nn.LeakyReLU, residual='netwise'):
         super().__init__()
