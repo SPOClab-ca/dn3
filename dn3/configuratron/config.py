@@ -12,7 +12,7 @@ from collections import OrderedDict
 from mne import pick_types, read_annotations, set_log_level
 
 from dn3.data.dataset import Dataset, RawTorchRecording, EpochTorchRecording, Thinker, DatasetInfo
-from dn3.utils import make_epochs_from_raw, DN3ConfigException
+from dn3.utils import make_epochs_from_raw, DN3ConfigException, skip_inds_from_bad_spans
 from dn3.transforms.instance import MappingDeep1010, TemporalInterpolation
 from dn3.transforms.channels import stringify_channel_mapping
 
@@ -214,6 +214,7 @@ class DatasetConfig:
         self.extensions = get_pop('file_extensions', list(_SUPPORTED_EXTENSIONS.keys()))
         self.exclude_people = get_pop('exclude_people', list())
         self.exclude_sessions = get_pop('exclude_sessions', list())
+        self.exclude = get_pop('exclude', dict())
         self.deep1010 = deep1010
         if self.deep1010 and (self.data_min is None or self.data_min is None):
             print("Warning: Can't add scale index with dataset that is missing info.")
@@ -251,7 +252,6 @@ class DatasetConfig:
                 self.add_extension_handler(ext, ext_handlers[ext])
 
         self._excluded_people = list()
-        self._excluded_sessions = list()
 
     _PICK_TYPES = ['meg', 'eeg', 'stim', 'eog', 'ecg', 'emg', 'ref_meg', 'misc', 'resp', 'chpi', 'exci', 'ias', 'syst',
                    'seeg', 'dipole', 'gof', 'bio', 'ecog', 'fnirs', 'csd', ]
@@ -294,21 +294,56 @@ class DatasetConfig:
             files += self.toplevel.glob("**/*{}".format(extension))
         return files
 
-    def _exclude_file(self, f: Path):
-        exclusions = self.exclude_sessions.copy()
+    def _is_narrowly_excluded(self, person_name, session_name):
+        if person_name in self.exclude.keys():
+            if self.exclude[person_name] is None:
+                self._excluded_people.append(person_name)
+                return True
+            assert isinstance(self.exclude[person_name], dict)
+            if session_name in self.exclude[person_name].keys() and self.exclude[person_name][session_name] is None:
+                return True
+        return False
+
+    def is_exlcuded(self, f: Path, person_name, session_name):
+
+        if self._is_narrowly_excluded(person_name, session_name):
+            return True
+
+        if True in [fnmatch(person_name, pattern) for pattern in self.exclude_people]:
+            self._excluded_people.append(person_name)
+            return True
+
+        session_exclusion_patterns = self.exclude_sessions.copy()
         if self.annotation_format is not None:
             # Some hacks over here, but it will do
             patt = self.annotation_format.format(subject='**', session='*')
             patt = patt.replace('**', '*')
             patt = patt.replace('**', '*')
-            exclusions.append(patt)
-        for exclusion_pattern in exclusions:
+            session_exclusion_patterns.append(patt)
+        for exclusion_pattern in session_exclusion_patterns:
             for version in (f.stem, f.name):
                 if fnmatch(version, exclusion_pattern):
                     return True
         return False
 
-    def auto_mapping(self, files=None):
+    def _get_person_name(self, f: Path):
+        if self.filename_format is None:
+            person = f.parent.name
+        else:
+            person = search(self.filename_format, f.name)
+            if person is None:
+                raise DN3ConfigException("Could not find person in {} using {}.".format(f.name, self.filename_format))
+            person = person['subject']
+        return person
+
+    def _get_session_name(self, f: Path):
+        if self.filename_format is not None and fnmatch(self.filename_format, "*{session*}*"):
+            sess_name = search(self.filename_format, f.name)['session']
+        else:
+            sess_name = f.name
+        return sess_name
+
+    def auto_mapping(self, files=None, reset_exclusions=True):
         """
         Generates a mapping of sessions and people of the dataset, assuming files are stored in the structure:
         `toplevel`/(*optional - <version>)/<person-id>/<session-id>.{ext}
@@ -325,28 +360,24 @@ class DatasetConfig:
                   The keys are of all the people in the dataset, and each value another similar mapping to that person's
                   sessions.
         """
+        if reset_exclusions:
+            self._excluded_people = list()
+
         files = self.scan_toplevel() if files is None else files
         mapping = dict()
         for sess_file in files:
             sess_file = Path(sess_file)
-            if self._exclude_file(sess_file):
-                self._excluded_sessions.append(sess_file)
+            person_name = self._get_person_name(sess_file)
+            session_name = self._get_session_name(sess_file)
+
+            if self.is_exlcuded(sess_file, person_name, session_name):
                 continue
-            if self.filename_format is None:
-                person = sess_file.parent.name
+
+            if person_name in mapping:
+                mapping[person_name].append(str(sess_file))
             else:
-                person = search(self.filename_format, sess_file.name)
-                if person is None:
-                    raise DN3ConfigException("Could not find person in {} using {}.".format(sess_file.name,
-                                                                                            self.filename_format))
-                person = person['subject']
-            if True not in [fnmatch(person, pattern) for pattern in self.exclude_people]:
-                if person in mapping:
-                    mapping[person].append(str(sess_file))
-                else:
-                    mapping[person] = [str(sess_file)]
-            else:
-                self._excluded_people.append(person)
+                mapping[person_name] = [str(sess_file)]
+
         return mapping
 
     def _add_deep1010(self, ch_names: list, deep1010map: np.ndarray, unused):
@@ -415,6 +446,11 @@ class DatasetConfig:
         return raw, tlen, picks, new_sfreq
 
     def _construct_session_from_config(self, session, sess_id, thinker_id):
+        bad_spans = None
+        if thinker_id in self.exclude.keys():
+            if sess_id in self.exclude[thinker_id].keys():
+                bad_spans = self.exclude[thinker_id][sess_id]
+
         def load_and_prepare(sess):
             if not isinstance(sess, Path):
                 sess = Path(sess)
@@ -427,9 +463,10 @@ class DatasetConfig:
         if self._create_raw_recordings:
             if self._on_the_fly:
                 recording = RawOnTheFlyRecording(raw, tlen, lambda s: load_and_prepare(s)[1], stride=self.stride,
-                                                 decimate=self.decimate, ch_ind_picks=picks)
+                                                 decimate=self.decimate, ch_ind_picks=picks, bad_spans=bad_spans)
             else:
-                recording = RawTorchRecording(raw, tlen, stride=self.stride, decimate=self.decimate, ch_ind_picks=picks)
+                recording = RawTorchRecording(raw, tlen, stride=self.stride, decimate=self.decimate, ch_ind_picks=picks,
+                                              bad_spans=bad_spans)
         else:
             use_annotations = self.events is not None and True in [isinstance(x, str) for x in self.events.keys()]
             if use_annotations and self.annotation_format is not None:
@@ -444,7 +481,8 @@ class DatasetConfig:
                                           use_annotations=use_annotations, chunk_duration=self.chunk_duration)
 
             self._unique_events = self._unique_events.union(set(np.unique(epochs.events[:, -1])))
-            recording = EpochTorchRecording(epochs, ch_ind_picks=picks, event_mapping=self.events)
+            recording = EpochTorchRecording(epochs, ch_ind_picks=picks, event_mapping=self.events,
+                                            skip_epochs=skip_inds_from_bad_spans(epochs, bad_spans))
 
         if len(recording) == 0:
             raise DN3ConfigException("The recording at {} has no viable training data with the configuration options "
@@ -470,10 +508,7 @@ class DatasetConfig:
         sessions = dict()
         for sess in thinker:
             sess = Path(sess)
-            if self.filename_format is not None and fnmatch(self.filename_format, "*{session*}*"):
-                sess_name = search(self.filename_format, sess.name)['session']
-            else:
-                sess_name = sess.name
+            sess_name = self._get_session_name(sess)
             try:
                 sessions[sess_name] = self._construct_session_from_config(sess, sess_name, thinker_id)
             except DN3ConfigException as e:
@@ -523,7 +558,7 @@ class DatasetConfig:
             except DN3ConfigException:
                 tqdm.tqdm.write("None of the sessions for {} were usable. Skipping...".format(t))
 
-        info = DatasetInfo(self.name, self.data_max, self.data_min, self._excluded_people, self._excluded_sessions,
+        info = DatasetInfo(self.name, self.data_max, self.data_min, self._excluded_people,
                            targets=self._targets if self._targets is not None else len(self._unique_events))
         dsargs.setdefault('dataset_info', info)
         dsargs.setdefault('dataset_id', self.dataset_id)

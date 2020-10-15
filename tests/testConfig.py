@@ -128,9 +128,14 @@ class TestRealDatasetConfiguratron(unittest.TestCase):
     def test_FullySpecifiedConstruct(self):
         dataset = self.fully.auto_construct_dataset()
         # Check the exclusion worked
-        self.assertEqual(self.NUM_SUBJECTS - 4, len(dataset.get_thinkers()))
+        self.assertEqual(self.NUM_SUBJECTS - 5, len(dataset.get_thinkers()))
         # After exclusion, should have single SFREQ
         self.assertEqual(self.SFREQ / self.fully.decimate, dataset.sfreq)
+
+        # Detailed exclusion tests filename formatting and session and time window skipping
+        self.assertEqual(len(dataset.thinkers['S003'].sessions), len(dataset.thinkers['S001'].sessions) + 1)
+        self.assertEqual(len(dataset.thinkers['S002'].sessions['R04']),
+                         round(len(dataset.thinkers['S002'].sessions['R03']) / 2))
 
     def test_OnTheFlyRaw(self):
         preload = self.minimal_raw.auto_construct_dataset()

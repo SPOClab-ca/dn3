@@ -175,10 +175,10 @@ Special entries
 ---------------
 **filename_format** *(str)*
   The special entry will assume that after scanning for all the correct *type* of file, the *subject* and *session*
-  (or in DN3-speak, the *Thinker* and *Recording*) name can be parsed from the filename, where the filename is otherwise
-  static. This should be a string with two required substrings: *{subject}* and *{session}*. These should be wherever
-  this information can be read from the static string (you can get away with strings that are not strictly static, as
-  long as the context around the parsed sections). Note, the file extension should not be included, and fixed length can
+  (or in DN3-speak, the *Thinker* and *Recording*) name can be parsed from the filepath. This should be a
+  python-*format*-style string with two required substrings: *{subject}* and *{session}* that form a template for
+  parsing subject and session ids from the path.
+  Note, the file extension should not be included, and fixed length can
   be specified by trailing *:N* for length *N*, e.g. *{subject:2}* for specifically 2 characters devoted to subject ID.
 
 The next few entries are superseded by the `Configuratron` entry *samples*, which defines a global number of samples
@@ -338,7 +338,7 @@ exclude *(map/dict)*
           - Person01
         exclude:
           Person02: ~
-          Person03: ~
+          Person03:
             Session01: ~
           Person04:
             Session01:
@@ -350,11 +350,11 @@ exclude *(map/dict)*
   The above says that *Person01* and *Person02* should both be completely ignored. *Session01* from *Person03* should be
   similarly ignored (with any other *Person03* session left available). Finally for *Person04* the data between
   0 and 0.5 seconds of *Session01* in addition to both the times between 0 and 0.5 and 100 and 120 seconds from
-  *Session02* should be ignored.
+  *Session02* should be ignored. If
 
   In summary, it allows more fine-grained exclusion **without pattern matching**, and can be used in conjunction with
   the other exclusion options. For those familiar with MNE's *bads* system, it is not used here, this allows for config
-  files to be shared rather than annotated copies of the original data. Further, this allows
+  files to be shared rather than annotated copies of the original data. Further, this allows for easier by-hand editing.
 
 Experimental/Risky Options
 --------------------------

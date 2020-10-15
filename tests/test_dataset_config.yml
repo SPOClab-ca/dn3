@@ -24,6 +24,7 @@ datasets:
 
   mmidb_fully_specified:
     toplevel: ./test_dataset/physionet.org/files/eegmmidb/
+    filename_format: "{subject:4}{session:3}"
     tmin: -0.25
     tlen: 3
     name: "MMIDB"
@@ -37,6 +38,14 @@ datasets:
       - S090
       - S092
       - S100
+    exclude:
+      S100: ~
+      S101: ~
+      S001:
+        R03: ~
+      S002:
+        R04:
+          - [0, 60]
     decimate: 1
     baseline: [-0.25, ~]
     bandpass: [0.1, 20]

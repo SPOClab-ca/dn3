@@ -88,6 +88,23 @@ def make_epochs_from_raw(raw: mne.io.Raw, tmin, tlen, event_ids=None, baseline=N
                       baseline=baseline, reject_by_annotation=drop_bad)
 
 
+def skip_inds_from_bad_spans(epochs: mne.Epochs, bad_spans: list):
+    if bad_spans is None:
+        return None
+
+    start_times = epochs.events[:, 0] / epochs.info['sfreq']
+    end_times = start_times + epochs.tmax - epochs.tmin
+
+    skip_inds = list()
+    for i, (start, end) in enumerate(zip(start_times, end_times)):
+        for bad_start, bad_end in bad_spans:
+            if bad_start <= start < bad_end or bad_start < end <= bad_end:
+                skip_inds.append(i)
+                break
+
+    return skip_inds
+
+
 # From: https://github.com/pytorch/pytorch/issues/7455
 class LabelSmoothedCrossEntropyLoss(torch.nn.Module):
     """this loss performs label smoothing to compute cross-entropy with soft labels, when smoothing=0.0, this

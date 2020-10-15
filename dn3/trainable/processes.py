@@ -705,7 +705,19 @@ class StandardClassification(BaseProcess):
         return DataLoader(dataset, **loader_kwargs)
 
 
-def _get_label_balance(dataset):
+def get_label_balance(dataset):
+    """
+    Given a dataset, return the proportion of each target class and the counts of each class type
+
+    Parameters
+    ----------
+    dataset
+
+    Returns
+    -------
+    sample_weights, counts
+    """
+    assert hasattr(dataset, 'get_targets')
     labels = dataset.get_targets()
     counts = np.bincount(labels)
     train_weights = 1. / torch.tensor(counts, dtype=torch.float)
@@ -720,11 +732,11 @@ def _get_label_balance(dataset):
 
 def balanced_undersampling(dataset, replacement=False):
     tqdm.tqdm.write("Undersampling for balanced distribution.")
-    sample_weights, counts = _get_label_balance(dataset)
+    sample_weights, counts = get_label_balance(dataset)
     return WeightedRandomSampler(sample_weights, len(counts) * int(counts.min()), replacement=replacement)
 
 
 def balanced_oversampling(dataset, replacement=True):
     tqdm.tqdm.write("Oversampling for balanced distribution.")
-    sample_weights, counts = _get_label_balance(dataset)
+    sample_weights, counts = get_label_balance(dataset)
     return WeightedRandomSampler(sample_weights, len(counts) * int(counts.max()), replacement=replacement)
