@@ -129,7 +129,7 @@ class DatasetConfig:
     """
     Parses dataset entries in DN3 config
     """
-    def __init__(self, name: str, config: dict, adopt_auxiliaries=True, ext_handlers=None, deep1010=True,
+    def __init__(self, name: str, config: dict, adopt_auxiliaries=True, ext_handlers=None, deep1010=None,
                  samples=None, sfreq=None, preload=False, return_trial_ids=False):
         """
         Parses dataset entries in DN3 config
@@ -216,7 +216,7 @@ class DatasetConfig:
         self.exclude_sessions = get_pop('exclude_sessions', list())
         self.exclude = get_pop('exclude', dict())
         self.deep1010 = deep1010
-        if self.deep1010 and (self.data_min is None or self.data_min is None):
+        if self.deep1010 is not None and (self.data_min is None or self.data_max is None):
             print("Warning: Can't add scale index with dataset that is missing info.")
         self._different_deep1010s = list()
         self._targets = get_pop('targets', None)

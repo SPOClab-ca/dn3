@@ -164,13 +164,14 @@ def deviation_based_span_rejection(dataset: Dataset, num_deviations=4, max_passe
 
     Returns
     -------
-    exclude,
+    exclude, all_deviations
 
     """
     old_trial, old_session, old_person = dataset.return_trial_id, dataset.return_session_id, dataset.return_person_id
     dataset.update_id_returns(trial=True, session=True, person=True)
     sfreq, sequence_length = dataset.sfreq, dataset.sequence_length
     deviations = {thid: {sid: [] for sid in dataset.thinkers[thid].sessions.keys()} for thid in dataset.get_thinkers()}
+    all_deviations = list()
     exclude = dict()
 
     def add_bad_span(tid, sid, start, end):
@@ -210,8 +211,7 @@ def deviation_based_span_rejection(dataset: Dataset, num_deviations=4, max_passe
             who_dis = dataset.get_thinkers()[int(t)]
             which_sess = list(dataset.thinkers[who_dis].sessions.keys())[s]
             deviations[who_dis][which_sess].append(x[i])
-
-    return_deviations = deviations.copy()
+            all_deviations.append(x[i][x[i].mask == False])
 
     for tid in deviations:
         for sid in deviations[tid]:
@@ -267,4 +267,4 @@ def deviation_based_span_rejection(dataset: Dataset, num_deviations=4, max_passe
             safe_dump(exclude, f)
 
     print('Done.')
-    return exclude, return_deviations
+    return exclude, all_deviations
