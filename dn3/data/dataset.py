@@ -922,6 +922,7 @@ class Dataset(DN3ataset, ConcatDataset):
         return {th: th.sessions.copy() for th in self.thinkers}
 
     def __len__(self):
+        self._reset_dataset()
         return self.cumulative_sizes[-1]
 
     def _make_like_me(self, people: list):

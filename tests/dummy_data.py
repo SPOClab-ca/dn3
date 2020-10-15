@@ -45,8 +45,8 @@ def create_dummy_raw():
     return raw
 
 
-def create_dummy_session(epoched=True, **kwargs):
-    raw = create_dummy_raw()
+def create_dummy_session(epoched=True, raw=None, **kwargs):
+    raw = create_dummy_raw() if raw is None else raw
     if epoched:
         events = mne.find_events(raw)
         epochs = mne.Epochs(raw, events, tmin=TMIN, tmax=TLEN + TMIN - 1 / SFREQ, baseline=None)

@@ -1,8 +1,8 @@
 import unittest
 
 from copy import deepcopy
-from dn3.data.utils import MultiDatasetContainer
-from dn3.transforms.instance import ZScore
+from dn3.data.utils import MultiDatasetContainer, deviation_based_span_rejection
+from dn3.transforms.instance import ZScore, MappingDeep1010
 from tests.dummy_data import *
 
 
@@ -256,6 +256,24 @@ class TestDatasetUtils(unittest.TestCase):
         # data + 4 ids + target
         self.assertEqual(len(np_data), 1 + 4 + 1)
         self.assertTrue(np.all([arr.shape[0] == len(self.dataset) for arr in np_data]))
+
+    def test_DeviationSpanRejection(self):
+        # Less people to speed it up
+        raw_dataset = create_dummy_dataset(epoched=False, num_thinkers=2)
+        bad_raw = create_dummy_raw()
+        bad_spans = [(1, 3), (7, 8)]
+        for bad_span in bad_spans:
+            # First 4 are "EEG" channels
+            bad_raw._data[:4, bad_span[0]*SFREQ:bad_span[1]*SFREQ] = 0
+        bad_session = create_dummy_session(epoched=False, raw=bad_raw, session_id='bad', stride=SFREQ)
+
+        raw_dataset.thinkers['p1'] + bad_session
+        raw_dataset.add_transform(MappingDeep1010(raw_dataset, return_mask=True))
+
+        excluded, _ = deviation_based_span_rejection(raw_dataset)
+        for i, bad_span in enumerate(bad_spans):
+            with self.subTest(bad_span=bad_span):
+                self.assertTupleEqual(bad_span, tuple(excluded['p1']['bad'][i]))
 
 
 if __name__ == '__main__':
