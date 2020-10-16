@@ -133,138 +133,196 @@ def get_largest_trial_id(dataset: Dataset, trial_id_offset=-2):
     return max_trial_id
 
 
-def deviation_based_span_rejection(dataset: Dataset, num_deviations=4, max_passes=10, save_to_yaml=None,
-                                   **dataloader_kwargs):
-    """
-    Rejects time-spans from sessions based on dataset-wide statistics.
+def _trial_stdev(x):
+    return x.numpy().std(axis=-1)
 
-    Warnings
-    ----------
-    This only works with :any:`Dataset` that have raw data underlying, in other words, constructed using
-    :any:`RawTorchRecording`, with Deep1010 mapping that includes a mask (which allows focus on only used EEG channels
-    but allows for varying channel configurations).
 
-    Additionally, with a very small stride (much smaller than sequence_length), corrupt portions (by the deviation
-    definition here) are likely to still propagate through at the tails of some points.
+class SingleStatisticSpanRejection:
 
-    Parameters
-    ----------
-    dataset : Dataset
-    num_deviations : float
-                    The number of standard deviations that a trial's deviation needs to differ, from the average
-                    standard deviation of all (not bad) trials.
-    max_passes : int
-                 The number of times to re-calculate the average standard deviation of not bad trials to reject those
-                 missed on the first pass.
-    save_to_yaml : str, None
-                   If not None, should be a filepath to where to store the exlcusions. This can then be used by the
-                   configuratron by specifying *exclude: !include <save_to_yaml filepath>
-    dataloader_kwargs : dict
-                        A pytorch dataloader is used to load data in batches. Keyword arguments propagated here.
+    def __init__(self, dataset, mask_ind=-1, stat_fn=_trial_stdev, **dataloader_kwargs):
+        assert callable(stat_fn)
+        self.stat_fn = stat_fn
 
-    Returns
-    -------
-    exclude, all_deviations
+        self.dataset = dataset
+        self.mask_ind = mask_ind
+        dataloader_kwargs.setdefault('shuffle', False)
+        dataloader_kwargs.setdefault('drop_last', False)
+        dataloader_kwargs.setdefault('batch_size', 128)
+        self.dataloader_kwargs = dataloader_kwargs
+        self.reset()
 
-    """
-    old_trial, old_session, old_person = dataset.return_trial_id, dataset.return_session_id, dataset.return_person_id
-    dataset.update_id_returns(trial=True, session=True, person=True)
-    sfreq, sequence_length = dataset.sfreq, dataset.sequence_length
-    deviations = {thid: {sid: [] for sid in dataset.thinkers[thid].sessions.keys()} for thid in dataset.get_thinkers()}
-    all_deviations = list()
-    exclude = dict()
+    def reset(self):
+        self._sfreq, self._sequence_length = self.dataset.sfreq, self.dataset.sequence_length
+        self.old_trial, self.old_session, self.old_person = self.dataset.return_trial_id, \
+                                                            self.dataset.return_session_id, \
+                                                            self.dataset.return_person_id
 
-    def add_bad_span(tid, sid, start, end):
-        if tid in exclude and sid in exclude[tid]:
-            exclude[tid][sid].append([start / sfreq, end / sfreq])
-        elif tid in exclude:
-            exclude[tid][sid] = [[start / sfreq, end / sfreq]]
+        self.statistic_lookup = {thid: {sid: [] for sid in self.dataset.thinkers[thid].sessions.keys()} for thid in
+                                 self.dataset.get_thinkers()}
+        self.rejections = copy.deepcopy(self.statistic_lookup)
+        self.exclude = dict()
+
+    @property
+    def valid_stats(self):
+        valid_stats = list()
+        for tid in self.statistic_lookup:
+            for sid in self.statistic_lookup[tid]:
+                for i, stat in enumerate(self.statistic_lookup[tid][sid]):
+                    if i not in self.rejections[tid][sid]:
+                        x = self.statistic_lookup[tid][sid][i]
+                        valid_stats.append(x[x.mask == False].data.ravel())
+        return np.concatenate(valid_stats)
+
+    @property
+    def rejected_stats(self):
+        rejected_stats = list()
+        for tid in self.statistic_lookup:
+            for sid in self.statistic_lookup[tid]:
+                for i, stat in enumerate(self.statistic_lookup[tid][sid]):
+                    if i in self.rejections[tid][sid]:
+                        x = self.statistic_lookup[tid][sid][i]
+                        rejected_stats.append(x[x.mask == False].data.ravel())
+        if len(rejected_stats) > 0:
+            return np.concatenate(rejected_stats)
+        return np.array([])
+
+    def collect_statistic(self):
+        self.dataset.update_id_returns(trial=True, session=True, person=True)
+        thinker_list = self.dataset.get_thinkers()
+        session_lists = {who_dis: list(self.dataset.thinkers[who_dis].sessions.keys()) for who_dis in thinker_list}
+
+        batch_loader = DataLoader(self.dataset, **self.dataloader_kwargs)
+
+        for data in tqdm.tqdm(batch_loader, desc="Loading Dataset"):
+            think_id, sess_id = data[1:3] if self.mask_ind == -1 else data[-3:-1]
+
+            x = self.stat_fn(data[0][:, EEG_INDS, :]).view(np.ma.MaskedArray)
+
+            x[np.invert(data[self.mask_ind][:, EEG_INDS].numpy())] = np.ma.masked
+
+            for i, (t, s) in enumerate(zip(think_id, sess_id)):
+                who_dis = thinker_list[int(t)]
+                which_sess = session_lists[who_dis][s]
+                self.statistic_lookup[who_dis][which_sess].append(x[i])
+
+        self.dataset.update_id_returns(trial=self.old_trial, person=self.old_person, session=self.old_session)
+
+    def _make_numpy_convenience(self):
+        stats = {thid: {sid: [] for sid in self.statistic_lookup[thid].keys()} for thid in self.statistic_lookup}
+        for tid in stats:
+            for sid in stats[tid]:
+                stats[tid][sid] = np.ma.stack(self.statistic_lookup[tid][sid])
+        return stats
+
+    def deviation_threshold_rejection(self, reject_iterations=10, num_deviations=4):
+        stats = self._make_numpy_convenience()
+        num_rejections = 0
+
+        for i in tqdm.trange(reject_iterations, desc='Rejecting:'):
+            valid_stats = self.valid_stats
+            total_mean_dev = valid_stats.mean()
+            total_stdev_of_dev = valid_stats.std()
+            reject_count = 0
+
+            for tid in stats:
+                for sid in stats[tid]:
+                    normed_diffs = np.abs(stats[tid][sid] - total_mean_dev) / total_stdev_of_dev
+
+                    new_rejections = np.unique(np.ma.nonzero(normed_diffs >= num_deviations)[0])
+                    stats[tid][sid][new_rejections] = np.ma.masked
+                    reject_count += len(new_rejections)
+                    num_rejections += len(new_rejections)
+                    self.rejections[tid][sid] = np.union1d(new_rejections, self.rejections[tid][sid]).tolist()
+
+            if reject_count == 0:
+                print("Stabilized early, stopping...")
+                break
+
+        return num_rejections
+
+    def keep_window(self, low=None, high=None):
+        """
+        Rejects any statistics that lie outside the specified windown limits of low and high. If one is not specified,
+        one side of the window is ignored.
+
+        Parameters
+        ----------
+        low : float, None
+              The lowest acceptable stat value. If None, no low threshold.
+        high: float, None
+              The highest acceptable stat value. If None, not high threshold.
+        """
+        if low is None and high is None:
+            raise ValueError("One of 'low' or 'high' needs to be specified.")
+        stats = self._make_numpy_convenience()
+
+        num_rejections = 0
+        for tid in stats:
+            for sid in stats[tid]:
+                low_rejections = np.ma.nonzero(stats[tid][sid] < low)[0]
+                high_rejections = np.ma.nonzero(stats[tid][sid] > high)[0]
+
+                new_rejections = np.concatenate([low_rejections, high_rejections])
+                num_rejections += len(new_rejections)
+                stats[tid][sid][new_rejections] = np.ma.masked
+                self.rejections[tid][sid] = np.setdiff1d(new_rejections, self.rejections[tid][sid]).tolist()
+
+        return num_rejections
+
+    def reject(self, thinker=None, session=None, trial=None, bulk=None):
+        pass
+
+    def _add_bad_span(self, tid, sid, start, end):
+        span = [float(start / self._sfreq), float(end / self._sfreq)]
+
+        if tid in self.exclude and sid in self.exclude[tid]:
+            self.exclude[tid][sid].append(span)
+        elif tid in self.exclude:
+            self.exclude[tid][sid] = [span]
         else:
-            exclude[tid] = {sid: [[start / sfreq, end / sfreq]]}
+            self.exclude[tid] = {sid: [span]}
 
-    def masked_dev_stats():
-        total = 0
-        results = list()
-        # First pass mean, second pass stdev. Total calculated once
-        for i in range(2):
-            accumulator = 0
-            for tid in deviations:
-                for sid in deviations[tid]:
-                    if i == 0:
-                        accumulator += deviations[tid][sid].sum()
-                        total += np.ma.count(deviations[tid][sid])
+    def get_configuratron_exclusions(self, save_to_file=None):
+        """
+        Creates exclusions to be used by configuratron on next dataset loading.
+
+        Parameters
+        ----------
+        save_to_file : str (path)
+                      If not None, will save the exlcusions as a yaml file for use by the configuratron.
+
+        Returns
+        -------
+        exclusions
+        """
+
+        def get_start_end(tid, sid, trial_id):
+            stride = self.dataset.thinkers[tid].sessions[sid].stride
+            return trial_id * stride, trial_id * stride + self._sequence_length
+
+        for tid in self.statistic_lookup:
+            for sid in self.statistic_lookup[tid]:
+                rejects = self.rejections[tid][sid]
+                if len(rejects) == 0:
+                    continue
+
+                start, end = get_start_end(tid, sid, rejects[0])
+                if len(rejects) == 1:
+                    self._add_bad_span(tid, sid, *get_start_end(tid, sid, rejects[0]))
+                    continue
+
+                for i, trial_id in enumerate(rejects[1:]):
+                    if rejects[i] == trial_id - 1:
+                        _, end = get_start_end(tid, sid, trial_id)
                     else:
-                        accumulator += np.ma.power((deviations[tid][sid] - results[0]), 2).sum()
-            results.append(accumulator / total)
-        return results[0], np.sqrt(results[1])
+                        self._add_bad_span(tid, sid, start, end)
+                        start, end = get_start_end(tid, sid, trial_id)
 
-    dataloader_kwargs.setdefault('shuffle', False)
-    dataloader_kwargs.setdefault('drop_last', False)
-    dataloader_kwargs.setdefault('batch_size', 128)
-    batch_loader = DataLoader(dataset, **dataloader_kwargs)
+                self._add_bad_span(tid, sid, start, end)
 
-    for data in tqdm.tqdm(batch_loader, desc="Loading Dataset"):
-        think_id, sess_id = data[-3:-1]
-        x = data[0][:, EEG_INDS, :].numpy().std(axis=-1).view(np.ma.MaskedArray)
-        x[np.invert(data[1][:, EEG_INDS].numpy())] = np.ma.masked
-        for i, (t, s) in enumerate(zip(think_id, sess_id)):
-            who_dis = dataset.get_thinkers()[int(t)]
-            which_sess = list(dataset.thinkers[who_dis].sessions.keys())[s]
-            deviations[who_dis][which_sess].append(x[i])
-            all_deviations.append(x[i][x[i].mask == False])
+        if save_to_file is not None:
+            print("Saving to", save_to_file)
+            with open(save_to_file, 'w') as f:
+                safe_dump(self.exclude, f)
 
-    for tid in deviations:
-        for sid in deviations[tid]:
-            deviations[tid][sid] = np.ma.stack(deviations[tid][sid])
-
-    for i in tqdm.trange(max_passes, desc='Rejecting:'):
-        total_mean_dev, total_std_from_mean_dev = masked_dev_stats()
-        reject_count = 0
-
-        for tid in deviations:
-            for sid in deviations[tid]:
-                normed_diffs = np.abs(deviations[tid][sid] - total_mean_dev) / total_std_from_mean_dev
-
-                new_rejections = np.unique(np.ma.nonzero(normed_diffs >= num_deviations)[0])
-                deviations[tid][sid][new_rejections] = np.ma.masked
-                reject_count += len(new_rejections)
-
-        if reject_count == 0:
-            print("Stabilized early, stopping...")
-            break
-
-    # print("Rejected {} dataset sequences.".format(reject_count))
-
-    def get_start_end(tid, sid, trial_id):
-        stride = dataset.thinkers[tid].sessions[sid].stride
-        return trial_id * stride, trial_id * stride + sequence_length
-
-    print("Cleaning up...")
-    for tid in deviations:
-        for sid in deviations[tid]:
-            rejects = np.unique(np.ma.nonzero(deviations[tid][sid].count(axis=1) == 0)[0])
-            if len(rejects) == 0:
-                continue
-
-            start, end = get_start_end(tid, sid, rejects[0])
-            if len(rejects) == 1:
-                add_bad_span(tid, sid, *get_start_end(tid, sid, rejects[0]))
-                continue
-
-            for i, trial_id in enumerate(rejects[1:]):
-                if rejects[i] == trial_id-1:
-                    _, end = get_start_end(tid, sid, trial_id)
-                else:
-                    add_bad_span(tid, sid, start, end)
-                    start, end = get_start_end(tid, sid, trial_id)
-
-            add_bad_span(tid, sid, start, end)
-
-    dataset.update_id_returns(trial=old_trial, person=old_person, session=old_session)
-    if save_to_yaml is not None:
-        print("Saving to", save_to_yaml)
-        with open(save_to_yaml, 'w') as f:
-            safe_dump(exclude, f)
-
-    print('Done.')
-    return exclude, all_deviations
+        return self.exclude

@@ -1,7 +1,8 @@
 import unittest
+import os
 
 from copy import deepcopy
-from dn3.data.utils import MultiDatasetContainer, deviation_based_span_rejection
+from dn3.data.utils import MultiDatasetContainer, SingleStatisticSpanRejection
 from dn3.transforms.instance import ZScore, MappingDeep1010
 from tests.dummy_data import *
 
@@ -270,10 +271,19 @@ class TestDatasetUtils(unittest.TestCase):
         raw_dataset.thinkers['p1'] + bad_session
         raw_dataset.add_transform(MappingDeep1010(raw_dataset, return_mask=True))
 
-        excluded, _ = deviation_based_span_rejection(raw_dataset)
+        save_file = 'exclude_test.yml'
+
+        rejector = SingleStatisticSpanRejection(raw_dataset, mask_ind=1)
+        rejector.collect_statistic()
+        self.assertEqual(0, len(rejector.rejected_stats))
+
+        rejector.deviation_threshold_rejection()
+        excluded = rejector.get_configuratron_exclusions(save_to_file=save_file)
         for i, bad_span in enumerate(bad_spans):
             with self.subTest(bad_span=bad_span):
                 self.assertTupleEqual(bad_span, tuple(excluded['p1']['bad'][i]))
+        self.assertTrue(os.path.exists(save_file))
+        os.remove(save_file)
 
 
 if __name__ == '__main__':
