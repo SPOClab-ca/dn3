@@ -283,9 +283,9 @@ class RawTorchRecording(_Recording):
             drop = list()
             for i, span_start in enumerate(self._decimated_sequence_starts):
                 if start <= span_start < stop or start <= span_start + self._recording_len <= stop:
-                    drop.append(i)
-            for i in drop:
-                self._decimated_sequence_starts.remove(i)
+                    drop.append(span_start)
+            for span_start in drop:
+                self._decimated_sequence_starts.remove(span_start)
 
         # When the stride is greater than the sequence length, preload savings can be found by chopping the
         # sequence into subsequences of length sequence length. Also, if decimating, can significantly reduce memory

@@ -151,7 +151,18 @@ class SingleStatisticSpanRejection:
         self.dataloader_kwargs = dataloader_kwargs
         self.reset()
 
-    def reset(self):
+    @staticmethod
+    def from_precollected_statistics(precollected):
+        pass
+
+    def reset(self, rejections_only=False):
+        self.rejections = {thid: {sid: [] for sid in self.dataset.thinkers[thid].sessions.keys()} for thid in
+                           self.dataset.get_thinkers()}
+        self.exclude = dict()
+
+        if rejections_only:
+            return
+
         self._sfreq, self._sequence_length = self.dataset.sfreq, self.dataset.sequence_length
         self.old_trial, self.old_session, self.old_person = self.dataset.return_trial_id, \
                                                             self.dataset.return_session_id, \
@@ -159,8 +170,6 @@ class SingleStatisticSpanRejection:
 
         self.statistic_lookup = {thid: {sid: [] for sid in self.dataset.thinkers[thid].sessions.keys()} for thid in
                                  self.dataset.get_thinkers()}
-        self.rejections = copy.deepcopy(self.statistic_lookup)
-        self.exclude = dict()
 
     @property
     def valid_stats(self):

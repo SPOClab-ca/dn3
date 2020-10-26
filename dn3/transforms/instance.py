@@ -1,6 +1,9 @@
 import torch
 import numpy as np
 
+from random import choices
+from typing import List
+
 from .channels import map_dataset_channels_deep_1010, DEEP_1010_CH_TYPES, SCALE_IND, \
     EEG_INDS, EOG_INDS, REF_INDS, EXTRA_INDS
 from dn3.utils import min_max_normalize
@@ -201,12 +204,58 @@ class CropAndUpSample(TemporalInterpolation):
         return old_sequence_length
 
 
+class TemporalCrop(InstanceTransform):
+
+    def __init__(self, cropped_length, start_offset=None):
+        """
+        Crop to a new length of `cropped_length` from the specified `start_offset`, or randomly select an offset.
+
+        Parameters
+        ----------
+        cropped_length : int
+                         The cropped sequence length (in samples).
+        start_offset : int, None, List[int]
+                       If a single int, the sample to start the crop from. If `None`, will uniformly select from
+                       within the possible start offsets (such that `cropped_length` is not violated). If
+                       a list of ints, these specify the *un-normalized* probabilities for different start offsets.
+        """
+        super().__init__()
+        if isinstance(start_offset, int):
+            start_offset = [0 for _ in range(start_offset-1)] + [1]
+        elif isinstance(start_offset, list):
+            summed = sum(start_offset)
+            start_offset = [w / summed for w in start_offset]
+        self.start_offset = start_offset
+        self._new_length = cropped_length
+
+    def _get_start_offset(self, full_length):
+        possible_starts = full_length - self._new_length
+        assert possible_starts >= 0
+        if self.start_offset is None:
+            start_offset = np.random.choice(possible_starts)
+        else:
+            start_offset = self.start_offset + [0 for _ in range(len(self.start_offset), possible_starts)]
+            start_offset = np.random.choice(possible_starts, p=start_offset)
+        return start_offset
+
+    def __call__(self, x):
+        start_offset = self._get_start_offset(x.shape[-1])
+        return x[..., start_offset:start_offset + self._new_length]
+
+    def new_sequence_length(self, old_sequence_length):
+        return self._new_length
+
+
 class CropAndResample(TemporalInterpolation):
 
-    def __init__(self, desired_sequence_length, stdev, truncate=None, mode='nearest', new_sfreq=None):
+    def __init__(self, desired_sequence_length, stdev, truncate=None, mode='nearest', new_sfreq=None,
+                 crop_side='right'):
         super().__init__(desired_sequence_length, mode=mode, new_sfreq=new_sfreq)
         self.stdev = stdev
         self.truncate = float("inf") if truncate is None else truncate
+        if crop_side not in ['right', 'left']:
+            raise ValueError("The crop-side should either be 'left' or 'right'")
+        self.crop_side = crop_side
 
     @staticmethod
     def trunc_norm(mean, std, max_diff):
@@ -221,8 +270,12 @@ class CropAndResample(TemporalInterpolation):
     def __call__(self, x):
         max_diff = min(x.shape[-1] - self._new_sequence_length, self.truncate)
         assert max_diff > 0
-        offset = self.trunc_norm(self._new_sequence_length, self.stdev, max_diff)
-        return super(CropAndResample, self).__call__(x[:, :offset])
+        if self.crop_side == 'right':
+            offset = self.trunc_norm(self._new_sequence_length, self.stdev, max_diff)
+            return super(CropAndResample, self).__call__(x[:, :offset])
+        else:
+            offset = self.trunc_norm(x.shape[-1] - self._new_sequence_length, self.stdev, max_diff)
+            return super(CropAndResample, self).__call__(x[:, offset:])
 
 
 class MappingDeep1010(InstanceTransform):
@@ -347,3 +400,38 @@ class AdditiveEogDeep1010(InstanceTransform):
                 x[which_eog, :] = 0
         return x
 
+
+class UniformTransformSelection(InstanceTransform):
+
+    def __init__(self, transform_list: List[InstanceTransform], weights=None):
+        """
+        Uniformly selects a transform from the `transform_list` with probabilities according to `p`.
+
+        Parameters
+        ----------
+        transform_list: List[InstanceTransform]
+                        List of transforms to select from.
+        weights: None, List[float]
+           This is either `None`, in which case the transforms are selected with equal probability. Or relative
+           probabilities to select from `transform_list`. This means, it does not have to be normalized probabilities
+           *(this doesn't have to sum to one)*
+        """
+        super().__init__(only_trial_data=False)
+        for x in transform_list:
+            assert isinstance(x, InstanceTransform)
+        self.transforms = transform_list
+        if weights is None:
+            self._choice_weights = [1 / len(transform_list) for _ in range(len(transform_list))]
+        else:
+            assert len(weights) == len(transform_list)
+            total_weight = sum(weights)
+            self._choice_weights = [p / total_weight for p in weights]
+
+    def __call__(self, *x):
+        transform = np.random.choice(self.transforms, p=self._choice_weights)
+        # if don't need to support <3.6, this is faster
+        # which = choices(self.transforms, self._choice_weights)
+        if transform.only_trial_data:
+            return [transform(x[0]), *x[1:]]
+        else:
+            return transform(*x)
