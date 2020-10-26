@@ -1,3 +1,5 @@
+import warnings
+
 import torch
 import numpy as np
 
@@ -403,7 +405,7 @@ class AdditiveEogDeep1010(InstanceTransform):
 
 class UniformTransformSelection(InstanceTransform):
 
-    def __init__(self, transform_list: List[InstanceTransform], weights=None):
+    def __init__(self, transform_list, weights=None, suppress_warnings=False):
         """
         Uniformly selects a transform from the `transform_list` with probabilities according to `p`.
 
@@ -414,24 +416,46 @@ class UniformTransformSelection(InstanceTransform):
         weights: None, List[float]
            This is either `None`, in which case the transforms are selected with equal probability. Or relative
            probabilities to select from `transform_list`. This means, it does not have to be normalized probabilities
-           *(this doesn't have to sum to one)*
+           *(this doesn't have to sum to one)*. If `len(transform_list) == len(weights) - 1`, it will be assumed that
+           the final weight expresses the likelihood of *no transform*.
         """
         super().__init__(only_trial_data=False)
+        self.suppress_warnings = suppress_warnings
         for x in transform_list:
             assert isinstance(x, InstanceTransform)
         self.transforms = transform_list
         if weights is None:
             self._choice_weights = [1 / len(transform_list) for _ in range(len(transform_list))]
         else:
-            assert len(weights) == len(transform_list)
+            if len(weights) == len(transform_list) + 1:
+                self.transforms.append(lambda x: x)
             total_weight = sum(weights)
             self._choice_weights = [p / total_weight for p in weights]
+            assert len(weights) == len(transform_list)
 
     def __call__(self, *x):
         transform = np.random.choice(self.transforms, p=self._choice_weights)
         # if don't need to support <3.6, this is faster
         # which = choices(self.transforms, self._choice_weights)
-        if transform.only_trial_data:
+        if hasattr(transform, 'only_trial_data') and transform.only_trial_data:
             return [transform(x[0]), *x[1:]]
         else:
             return transform(*x)
+
+    def new_channels(self, old_channels):
+        all_new = set(transform.new_channels(old_channels) for transform in self.transforms)
+        if self.suppress_warnings and len(all_new) > 1:
+            warnings.warn('Multiple channel representations!')
+        return all_new.pop()
+
+    def new_sfreq(self, old_sfreq):
+        all_new = set(transform.new_sfreq(old_sfreq) for transform in self.transforms)
+        if self.suppress_warnings and len(all_new) > 1:
+            warnings.warn('Multiple new sampling frequencies!')
+        return all_new.pop()
+
+    def new_sequence_length(self, old_sequence_length):
+        all_new = set(transform.new_sequence_length(old_sequence_length) for transform in self.transforms)
+        if self.suppress_warnings and len(all_new) > 1:
+            warnings.warn('Multiple new sequence lengths!')
+        return all_new.pop()

@@ -205,7 +205,9 @@ class BaseProcess(object):
             device = outputs[0].device
         else:
             device = outputs.device
-        loss_fn = self.loss.to(device)
+        loss_fn = self.loss
+        if hasattr(self.loss, 'to'):
+            loss_fn = loss_fn.to(device)
         return loss_fn(outputs, inputs[-1])
 
     def calculate_metrics(self, inputs, outputs):
