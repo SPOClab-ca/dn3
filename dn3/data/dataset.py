@@ -203,7 +203,7 @@ class _Recording(DN3ataset, ABC):
         return sequence_length
 
 
-def _same_channel_sets(channel_sets: list):
+def same_channel_sets(channel_sets: list):
     """Validate that all the channel sets are consistent, return false if not"""
     for chs in channel_sets[1:]:
         if chs.shape[0] != channel_sets[0].shape[0] or chs.shape[1] != channel_sets[0].shape[1]:
@@ -485,7 +485,7 @@ class Thinker(DN3ataset, ConcatDataset):
     @property
     def channels(self):
         channels = [self.sessions[s].channels for s in self.sessions]
-        if not _same_channel_sets(channels):
+        if not same_channel_sets(channels):
             raise ValueError("Multiple channel sets found. A consistent mapping like Deep1010 is necessary to proceed.")
         channels = channels.pop()
         for xform in self._transforms:
@@ -880,7 +880,7 @@ class Dataset(DN3ataset, ConcatDataset):
     @property
     def channels(self):
         channels = [self.thinkers[t].channels for t in self.thinkers]
-        if not _same_channel_sets(channels):
+        if not same_channel_sets(channels):
             raise ValueError("Multiple channel sets found. A consistent mapping like Deep1010 is necessary to proceed.")
         channels = channels.pop()
         for xform in self._transforms:

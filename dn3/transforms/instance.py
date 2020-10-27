@@ -9,6 +9,7 @@ from typing import List
 from .channels import map_dataset_channels_deep_1010, DEEP_1010_CH_TYPES, SCALE_IND, \
     EEG_INDS, EOG_INDS, REF_INDS, EXTRA_INDS
 from dn3.utils import min_max_normalize
+from dn3.data.dataset import same_channel_sets
 
 from torch.nn.functional import interpolate
 
@@ -443,19 +444,19 @@ class UniformTransformSelection(InstanceTransform):
             return transform(*x)
 
     def new_channels(self, old_channels):
-        all_new = set(transform.new_channels(old_channels) for transform in self.transforms)
-        if self.suppress_warnings and len(all_new) > 1:
+        all_new = [transform.new_channels(old_channels) for transform in self.transforms]
+        if not self.suppress_warnings and same_channel_sets(all_new):
             warnings.warn('Multiple channel representations!')
-        return all_new.pop()
+        return all_new[0]
 
     def new_sfreq(self, old_sfreq):
         all_new = set(transform.new_sfreq(old_sfreq) for transform in self.transforms)
-        if self.suppress_warnings and len(all_new) > 1:
+        if not self.suppress_warnings and len(all_new) > 1:
             warnings.warn('Multiple new sampling frequencies!')
         return all_new.pop()
 
     def new_sequence_length(self, old_sequence_length):
         all_new = set(transform.new_sequence_length(old_sequence_length) for transform in self.transforms)
-        if self.suppress_warnings and len(all_new) > 1:
+        if not self.suppress_warnings and len(all_new) > 1:
             warnings.warn('Multiple new sequence lengths!')
         return all_new.pop()
