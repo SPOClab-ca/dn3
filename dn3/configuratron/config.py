@@ -253,6 +253,10 @@ class DatasetConfig:
 
         self._excluded_people = list()
 
+        # Callbacks
+        self._custom_thinker_loader = None
+        self._custom_raw_loader = None
+
     _PICK_TYPES = ['meg', 'eeg', 'stim', 'eog', 'ecg', 'emg', 'ref_meg', 'misc', 'resp', 'chpi', 'exci', 'ias', 'syst',
                    'seeg', 'dipole', 'gof', 'bio', 'ecog', 'fnirs', 'csd', ]
 
@@ -387,7 +391,28 @@ class DatasetConfig:
                 return
         self._different_deep1010s.append((ch_names, deep1010map, unused, 1))
 
+    def add_custom_raw_loader(self, custom_loader):
+        """
+        This is used to provide a custom implementation of taking a filename, and returning a :any:`mne.io.Raw()`
+        instance. If properly constructed, all further configuratron options, such as resampling, epoching, filtering
+        etc. should occur automatically.
+
+        This is used to load unconventional files, e.g. '.mat' files from matlab, or custom '.npy' arrays, etc.
+
+        Parameters
+        ----------
+        custom_loader: callable
+                       A function that expects a single :any:`pathlib.Path()` instance as argument and returns an
+                       instance of :any:`mne.io.Raw()`. To gracefully ignore problematic sessions, raise
+                       :any:`DN3ConfigException` within.
+
+        """
+        assert callable(custom_loader)
+        self._custom_raw_loader = custom_loader
+
     def _load_raw(self, path: Path):
+        if self._custom_raw_loader is not None:
+            return self._custom_raw_loader(path)
         if path.suffix in self._extension_handlers:
             return self._extension_handlers[path.suffix](str(path), preload=self.preload)
         print("Handler for file {} with extension {} not found.".format(str(path), path.suffix))
@@ -504,7 +529,30 @@ class DatasetConfig:
 
         return recording
 
+    def add_custom_thinker_loader(self, thinker_loader):
+        """
+        Add custom code to load a specific thinker from a set of session files.
+
+        Warnings
+        ----------
+        For all intents and purposes, this circumvents most of the configuratron, and results in it being mostly
+        a tool for organizing dataset files. Most of the options are not leveraged and must be implemented by the
+        custom loader. Please open an issue if you'd like to develop this option further!
+
+        Parameters
+        ----------
+        thinker_loader:
+                        A function that takes a list argument that consists of the filenames (str) of all the
+                        detected session for the given thinker and a second argument for the detected name of the
+                        person. The function should return a single instance of type :any:`Thinker`. To gracefully
+                        ignore the person, raise a :any:`DN3ConfigException`
+
+        """
+        self._custom_thinker_loader = thinker_loader
+
     def _construct_thinker_from_config(self, thinker: list, thinker_id):
+        if self._custom_thinker_loader is not None:
+            return self._custom_thinker_loader(thinker, thinker_id)
         sessions = dict()
         for sess in thinker:
             sess = Path(sess)
@@ -582,6 +630,22 @@ class RawOnTheFlyRecording(RawTorchRecording):
 
     def __init__(self, raw, tlen, file_loader, session_id=0, person_id=0, stride=1, ch_ind_picks=None,
                  decimate=1, **kwargs):
+        """
+        This provides a workaround for the normal raw recording pipeline so that files are not loaded in any way until
+        they are needed. MNE's Raw object are too bloated for extremely large datasets, even without preloading.
+
+        Parameters
+        ----------
+        raw
+        tlen
+        file_loader
+        session_id
+        person_id
+        stride
+        ch_ind_picks
+        decimate
+        kwargs
+        """
         super().__init__(raw, tlen, session_id, person_id, stride, ch_ind_picks, decimate, **kwargs)
         self.file_loader = file_loader
 

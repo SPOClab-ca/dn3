@@ -1,9 +1,9 @@
-import tqdm
 import unittest
 import os
 import yaml
 import json
 
+from mne.io import read_raw_edf
 from pathlib import Path
 from dn3.configuratron.config import ExperimentConfig
 from tests.dummy_data import *
@@ -125,17 +125,22 @@ class TestRealDatasetConfiguratron(unittest.TestCase):
         self.assertEqual(self.NUM_SUBJECTS, len(dataset.get_thinkers()))
         self.assertSetEqual(set(dataset.sfreq), {self.SFREQ, self.ALT_SFREQ})
 
-    def test_FullySpecifiedConstruct(self):
-        dataset = self.fully.auto_construct_dataset()
-        # Check the exclusion worked
+    def _check_fully_specified_requirements(self, dataset):
         self.assertEqual(self.NUM_SUBJECTS - 5, len(dataset.get_thinkers()))
         # After exclusion, should have single SFREQ
         self.assertEqual(self.SFREQ / self.fully.decimate, dataset.sfreq)
+
+        self.assertEqual(2, dataset.get_targets().shape[-1])
 
         # Detailed exclusion tests filename formatting and session and time window skipping
         self.assertEqual(len(dataset.thinkers['S003'].sessions), len(dataset.thinkers['S001'].sessions) + 1)
         self.assertEqual(len(dataset.thinkers['S002'].sessions['R04']),
                          round(len(dataset.thinkers['S002'].sessions['R03']) / 2))
+
+    def test_FullySpecifiedConstruct(self):
+        dataset = self.fully.auto_construct_dataset()
+        # Check the exclusion worked
+        self._check_fully_specified_requirements(dataset)
 
     def test_OnTheFlyRaw(self):
         preload = self.minimal_raw.auto_construct_dataset()
@@ -145,6 +150,11 @@ class TestRealDatasetConfiguratron(unittest.TestCase):
         for i in tqdm.trange(1000):
             with self.subTest(i=i):
                 self.assertTrue(torch.equal(preload[i][0], on_the_fly[i][0]))
+
+    def test_CustomLoader(self):
+        self.fully.add_custom_raw_loader(lambda path: read_raw_edf(path))
+        dataset = self.fully.auto_construct_dataset()
+        self._check_fully_specified_requirements(dataset)
 
     @classmethod
     def tearDownClass(cls) -> None:
