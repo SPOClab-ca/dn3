@@ -81,6 +81,7 @@ class BaseProcess(object):
         self.optimizer = torch.optim.SGD(self.parameters(), weight_decay=l2_weight_decay, lr=lr, nesterov=True,
                                          momentum=0.9)
         self.scheduler = None
+        self.scheduler_after_batch = False
         self.epoch = None
         self.lr = lr
         self.weight_decay = l2_weight_decay
@@ -94,7 +95,7 @@ class BaseProcess(object):
         self.optimizer = optimizer
         self.lr = float(self.optimizer.param_groups[0]['lr'])
 
-    def set_scheduler(self, scheduler):
+    def set_scheduler(self, scheduler, step_every_batch=False):
         """
         This allow the addition of a learning rate schedule to the process. By default, a linear warmup with cosine
         decay will be used. Any scheduler that is an instance of :any:`Scheduler` (pytorch's schedulers, or extensions
@@ -104,14 +105,21 @@ class BaseProcess(object):
         Parameters
         ----------
         scheduler: str, Scheduler
+        step_every_batch: bool
+                          Whether to call step after every batch (if `True`), or after every epoch (`False`)
+
         """
         if isinstance(scheduler, str):
             if scheduler.lower() == 'constant':
-                self.scheduler = torch.optim.lr_scheduler.LambdaLR(self.optimizer, lambda e: 1.0)
+                scheduler = torch.optim.lr_scheduler.LambdaLR(self.optimizer, lambda e: 1.0)
             else:
                 raise ValueError("Scheduler {} is not supported.".format(scheduler))
+        # This is the most common one that needs this, force this to be true
+        elif isinstance(scheduler, torch.optim.lr_scheduler.OneCycleLR):
+            self.scheduler_after_batch = True
         else:
-            self.scheduler = scheduler
+            self.scheduler_after_batch = step_every_batch
+        self.scheduler = scheduler
 
     def add_metrics(self, metrics: dict, evaluation_only=False):
         self.metrics.update(**metrics)
@@ -254,12 +262,8 @@ class BaseProcess(object):
         self.backward(loss)
 
         self.optimizer.step()
-        if self.scheduler is not None:
-            # Workaround for Cosine annealing, where epoch is actually step
-            if isinstance(self.scheduler, torch.optim.lr_scheduler.OneCycleLR):
-                self.scheduler.step()
-            else:
-                self.scheduler.step(epoch=self.epoch)
+        if self.scheduler is not None and self.scheduler_after_batch:
+            self.scheduler.step()
 
         train_metrics = self.calculate_metrics(inputs, outputs)
         train_metrics.setdefault('loss', loss.item())
@@ -572,6 +576,9 @@ class BaseProcess(object):
             metrics = OrderedDict()
             # All future epochs should not start offset in iterations
             resume_iteration = 1
+
+            if not self.scheduler_after_batch and self.scheduler is not None:
+                self.scheduler.step()
 
         if _clear_scheduler_after:
             self.set_scheduler(None)

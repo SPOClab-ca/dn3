@@ -68,15 +68,18 @@ class TestSimpleClassifier(unittest.TestCase):
 
     def test_StridedFit(self):
         stride_classifier = EEGNetStrided.from_dataset(self.dataset)
-        trainable = StandardClassification(stride_classifier)
+        process = StandardClassification(stride_classifier)
+        process.set_scheduler('constant')
         loader = DataLoader(self.dataset, batch_size=self._BATCH_SIZE, shuffle=True, num_workers=self._NUM_WORKERS,
                             drop_last=True)
 
-        def check_train_mode(metrics):
+        def checks(metrics):
             with self.subTest("train-mode"):
                 self.assertTrue(self.classifier.training)
+            with self.subTest("constant-learning-rate"):
+                self.assertTrue(metrics['lr'] == process.lr)
 
-        train_log, eval_log = trainable.fit(loader, epochs=self._NUM_EPOCHS, step_callback=check_train_mode)
+        train_log, eval_log = process.fit(loader, epochs=self._NUM_EPOCHS, step_callback=checks)
 
         self.assertEqual(len(train_log), self._NUM_EPOCHS * len(self.dataset) // self._BATCH_SIZE)
 
