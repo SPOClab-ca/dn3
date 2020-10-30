@@ -6,7 +6,7 @@ import tqdm
 import numpy as np
 
 from dn3.transforms.preprocessors import Preprocessor
-from dn3.transforms.instance import InstanceTransform
+from dn3.transforms.instance import InstanceTransform, same_channel_sets
 from dn3.utils import rand_split, unfurl, DN3atasetNanFound
 
 from abc import ABC
@@ -201,16 +201,6 @@ class _Recording(DN3ataset, ABC):
         for xform in self._transforms:
             sequence_length = xform.new_sequence_length(sequence_length)
         return sequence_length
-
-
-def same_channel_sets(channel_sets: list):
-    """Validate that all the channel sets are consistent, return false if not"""
-    for chs in channel_sets[1:]:
-        if chs.shape[0] != channel_sets[0].shape[0] or chs.shape[1] != channel_sets[0].shape[1]:
-            return False
-        # if not np.all(channel_sets[0] == chs):
-        #     return False
-    return True
 
 
 class RawTorchRecording(_Recording):

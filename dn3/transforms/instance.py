@@ -7,11 +7,20 @@ import numpy as np
 from typing import List
 
 from .channels import map_dataset_channels_deep_1010, DEEP_1010_CH_TYPES, SCALE_IND, \
-    EEG_INDS, EOG_INDS, REF_INDS, EXTRA_INDS
+    EEG_INDS, EOG_INDS, REF_INDS, EXTRA_INDS, DEEP_1010_CHS_LISTING
 from dn3.utils import min_max_normalize
-from dn3.data.dataset import same_channel_sets
 
 from torch.nn.functional import interpolate
+
+
+def same_channel_sets(channel_sets: list):
+    """Validate that all the channel sets are consistent, return false if not"""
+    for chs in channel_sets[1:]:
+        if chs.shape[0] != channel_sets[0].shape[0] or chs.shape[1] != channel_sets[0].shape[1]:
+            return False
+        # if not np.all(channel_sets[0] == chs):
+        #     return False
+    return True
 
 
 class InstanceTransform(object):
@@ -89,6 +98,15 @@ class InstanceTransform(object):
         new_sequence_length : int
         """
         return old_sequence_length
+
+
+class _PassThroughTransform(InstanceTransform):
+
+    def __init__(self):
+        super().__init__(only_trial_data=False)
+
+    def __call__(self, *x):
+        return x
 
 
 class ZScore(InstanceTransform):
@@ -204,7 +222,7 @@ class CropAndUpSample(TemporalInterpolation):
         return super(CropAndUpSample, self).__call__(x[:, :crop_len])
 
     def new_sequence_length(self, old_sequence_length):
-        return old_sequence_length
+        return old_sequence_length - self.crop_sequence_min
 
 
 class TemporalCrop(InstanceTransform):
@@ -268,7 +286,7 @@ class CropAndResample(TemporalInterpolation):
         return val
 
     def new_sequence_length(self, old_sequence_length):
-        return old_sequence_length
+        return self._new_sequence_length
 
     def __call__(self, x):
         max_diff = min(x.shape[-1] - self._new_sequence_length, self.truncate)
@@ -344,6 +362,24 @@ class MappingDeep1010(InstanceTransform):
             else:
                 channels.append(None)
         return np.array(list(zip(channels, DEEP_1010_CH_TYPES)))
+
+
+class Deep1010ToEEG(InstanceTransform):
+
+    def __init__(self):
+        super().__init__(only_trial_data=False)
+
+    def new_channels(self, old_channels):
+        return old_channels[EEG_INDS]
+
+    def __call__(self, *x):
+        x = list(x)
+        for i in range(len(x)):
+            # Assume every tensor that has deep1010 length should be modified
+            if len(x[i].shape) > 0 and x[i].shape[0] == len(DEEP_1010_CHS_LISTING):
+                x[i] = x[i][EEG_INDS, ...]
+
+        return x
 
 
 class MaskAuxiliariesDeep1010(InstanceTransform):
@@ -429,7 +465,7 @@ class UniformTransformSelection(InstanceTransform):
             self._choice_weights = [1 / len(transform_list) for _ in range(len(transform_list))]
         else:
             if len(weights) == len(transform_list) + 1:
-                self.transforms.append(lambda x: x)
+                self.transforms.append(_PassThroughTransform())
             total_weight = sum(weights)
             self._choice_weights = [p / total_weight for p in weights]
             assert len(weights) == len(transform_list)
@@ -445,7 +481,7 @@ class UniformTransformSelection(InstanceTransform):
 
     def new_channels(self, old_channels):
         all_new = [transform.new_channels(old_channels) for transform in self.transforms]
-        if not self.suppress_warnings and same_channel_sets(all_new):
+        if not self.suppress_warnings and not same_channel_sets(all_new):
             warnings.warn('Multiple channel representations!')
         return all_new[0]
 

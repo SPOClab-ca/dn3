@@ -81,6 +81,7 @@ class BaseProcess(object):
         self.optimizer = torch.optim.SGD(self.parameters(), weight_decay=l2_weight_decay, lr=lr, nesterov=True,
                                          momentum=0.9)
         self.scheduler = None
+        self.epoch = None
         self.lr = lr
         self.weight_decay = l2_weight_decay
 
@@ -254,7 +255,11 @@ class BaseProcess(object):
 
         self.optimizer.step()
         if self.scheduler is not None:
-            self.scheduler.step()
+            # Workaround for Cosine annealing, where epoch is actually step
+            if isinstance(self.scheduler, torch.optim.lr_scheduler.OneCycleLR):
+                self.scheduler.step()
+            else:
+                self.scheduler.step(epoch=self.epoch)
 
         train_metrics = self.calculate_metrics(inputs, outputs)
         train_metrics.setdefault('loss', loss.item())
@@ -478,14 +483,14 @@ class BaseProcess(object):
 
         _clear_scheduler_after = self.scheduler is None
         if _clear_scheduler_after:
+            last_epoch_workaround = len(training_dataset) * (resume_epoch - 1) + resume_iteration
+            last_epoch_workaround = -1 if last_epoch_workaround <= 1 else last_epoch_workaround
             self.set_scheduler(
                 torch.optim.lr_scheduler.OneCycleLR(self.optimizer, self.lr, epochs=epochs,
                                                     steps_per_epoch=len(training_dataset),
-                                                    pct_start=warmup_frac)
+                                                    pct_start=warmup_frac,
+                                                    last_epoch=last_epoch_workaround)
             )
-            # If resuming, need to pre-step
-            for _ in range((resume_epoch - 1) * len(training_dataset) + resume_iteration - 1):
-                self.scheduler.step()
 
         validation_log = list()
         train_log = list()
@@ -523,6 +528,7 @@ class BaseProcess(object):
 
         epoch_bar = tqdm.trange(resume_epoch, epochs + 1, desc="Epoch", unit='epoch', initial=resume_epoch, total=epochs)
         for epoch in epoch_bar:
+            self.epoch = epoch
             pbar = tqdm.trange(resume_iteration, len(training_dataset) + 1, desc="Iteration", unit='batches',
                                initial=resume_iteration, total=len(training_dataset))
             data_iterator = iter(training_dataset)
@@ -569,6 +575,7 @@ class BaseProcess(object):
 
         if _clear_scheduler_after:
             self.set_scheduler(None)
+        self.epoch = None
 
         if retain_best is not None and validation_dataset is not None:
             tqdm.tqdm.write("Loading best model...")
@@ -625,7 +632,7 @@ class StandardClassification(BaseProcess):
         return super(StandardClassification, self).calculate_loss(inputs, outputs)
 
     def fit(self, training_dataset, epochs=1, validation_dataset=None, step_callback=None, epoch_callback=None,
-            batch_size=8, warmup_frac=0.2, retain_best='loss', balance_method='undersample', **loader_kwargs):
+            batch_size=8, warmup_frac=0.2, retain_best='loss', balance_method=None, **loader_kwargs):
         """
         sklearn/keras-like convenience method to simply proceed with training across multiple epochs of the provided
         dataset
@@ -650,8 +657,8 @@ class StandardClassification(BaseProcess):
                       retain the model at the epoch with the lowest validation loss. If another string, will assume that
                       is the metric to monitor for the *highest score*. If None, the final model is used.
         balance_method : (None, str)
-                         If and how to balance training samples when training. `None` will simply randomly
-                         sample all training samples equally. 'undersample' (default) will sample each class N_min times
+                         If and how to balance training samples when training. `None` (default) will simply randomly
+                         sample all training samples equally. 'undersample' will sample each class N_min times
                          where N_min is equal to the number of examples in the minority class. 'oversample' will sample
                          each class N_max times, where N_max is the number of the majority class.
         loader_kwargs :
@@ -692,14 +699,14 @@ class StandardClassification(BaseProcess):
             assert method.lower() in ['undersample', 'oversample']
             if not hasattr(dataset, 'get_targets'):
                 print("Failed to create dataloader with {} balancing. {} does not support `get_targets()`.".format(
-                    method, dataset.__class__.__name__
+                    method, dataset
                 ))
             else:
                 sampler = balanced_undersampling(dataset) if method.lower() == 'undersample' \
                     else balanced_oversampling(dataset)
                 # Shuffle is implied by the balanced sampling
                 loader_kwargs['shuffle'] = None
-                return DataLoader(dataset, sampler=sampler, **loader_kwargs)
+                loader_kwargs['sampler'] = sampler
 
         # Make sure balance method is not passed to DataLoader at this point.
         loader_kwargs.pop('balance_method', None)
