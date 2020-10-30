@@ -130,7 +130,7 @@ class TestRealDatasetConfiguratron(unittest.TestCase):
         # After exclusion, should have single SFREQ
         self.assertEqual(self.SFREQ / self.fully.decimate, dataset.sfreq)
 
-        self.assertEqual(2, dataset.get_targets().shape[-1])
+        self.assertEqual(1, dataset.get_targets().max())
 
         # Detailed exclusion tests filename formatting and session and time window skipping
         self.assertEqual(len(dataset.thinkers['S003'].sessions), len(dataset.thinkers['S001'].sessions) + 1)
@@ -155,6 +155,23 @@ class TestRealDatasetConfiguratron(unittest.TestCase):
         self.fully.add_custom_raw_loader(lambda path: read_raw_edf(path))
         dataset = self.fully.auto_construct_dataset()
         self._check_fully_specified_requirements(dataset)
+
+    def test_SessionCallbacks(self):
+        self._sess_count = 0
+        self._thinker_count = 0
+
+        def sess_cb(session: RawTorchRecording):
+            self.assertIsNotNone(session.session_id)
+            self._sess_count = self._sess_count + 1
+
+        def thinker_cb(thinker: Thinker):
+            self.assertIsNotNone(thinker.person_id)
+            self._thinker_count = self._thinker_count + 1
+
+        self.minimal_raw.add_progress_callbacks(session_callback=sess_cb, thinker_callback=thinker_cb)
+        dataset = self.minimal_raw.auto_construct_dataset()
+        self.assertEqual(self._sess_count, len([s for sessions in dataset.get_sessions().values() for s in sessions]))
+        self.assertEqual(self._thinker_count, len(dataset.get_thinkers()))
 
     @classmethod
     def tearDownClass(cls) -> None:

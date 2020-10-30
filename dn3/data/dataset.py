@@ -909,7 +909,7 @@ class Dataset(DN3ataset, ConcatDataset):
                       Keys are the thinkers of :py:meth:`get_thinkers()`, values are each another dictionary that maps
                       session ids to :any:`_Recording`
         """
-        return {th: th.sessions.copy() for th in self.thinkers}
+        return {th: self.thinkers[th].sessions.copy() for th in self.thinkers}
 
     def __len__(self):
         self._reset_dataset()

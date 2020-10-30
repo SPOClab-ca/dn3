@@ -253,9 +253,11 @@ class DatasetConfig:
 
         self._excluded_people = list()
 
-        # Callbacks
+        # Callbacks and custom loaders
         self._custom_thinker_loader = None
+        self._thinker_callback = None
         self._custom_raw_loader = None
+        self._session_callback = None
 
     _PICK_TYPES = ['meg', 'eeg', 'stim', 'eog', 'ecg', 'emg', 'ref_meg', 'misc', 'resp', 'chpi', 'exci', 'ias', 'syst',
                    'seeg', 'dipole', 'gof', 'bio', 'ecog', 'fnirs', 'csd', ]
@@ -410,6 +412,24 @@ class DatasetConfig:
         assert callable(custom_loader)
         self._custom_raw_loader = custom_loader
 
+    def add_progress_callbacks(self, session_callback=None, thinker_callback=None):
+        """
+        Add callbacks to be invoked on successful loading of session and/or thinker. Optionally, these can modify the
+        respective loaded instances.
+
+        Parameters
+        ----------
+        session_callback:
+                          A function that expects a single session argument and can modify the (or return an
+                          alternative) session.
+
+        thinker_callback:
+                          The same as for session, but with Thinker instances.
+
+        """
+        self._session_callback = session_callback
+        self._thinker_callback = thinker_callback
+
     def _load_raw(self, path: Path):
         if self._custom_raw_loader is not None:
             return self._custom_raw_loader(path)
@@ -558,7 +578,9 @@ class DatasetConfig:
             sess = Path(sess)
             sess_name = self._get_session_name(sess)
             try:
-                sessions[sess_name] = self._construct_session_from_config(sess, sess_name, thinker_id)
+                new_session = self._construct_session_from_config(sess, sess_name, thinker_id)
+                after_cb = None if self._session_callback is None else self._session_callback(new_session)
+                sessions[sess_name] = new_session if after_cb is None else after_cb
             except DN3ConfigException as e:
                 tqdm.tqdm.write("Skipping {}. Exception: {}.".format(sess_name, e.args))
         if len(sessions) == 0:
@@ -602,7 +624,9 @@ class DatasetConfig:
         thinkers = dict()
         for t in tqdm.tqdm(mapping, desc=description, unit='person'):
             try:
-                thinkers[t] = self._construct_thinker_from_config(mapping[t], t)
+                new_thinker = self._construct_thinker_from_config(mapping[t], t)
+                after_cb = None if self._thinker_callback is None else self._thinker_callback(new_thinker)
+                thinkers[t] = new_thinker if after_cb is None else after_cb
             except DN3ConfigException:
                 tqdm.tqdm.write("None of the sessions for {} were usable. Skipping...".format(t))
 
