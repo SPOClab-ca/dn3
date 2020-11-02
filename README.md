@@ -8,11 +8,15 @@ Focused on:
    * Architectures (potentially with pretrained weights) 
    * Pre-processing and data transformations
    
+See guides and documentation at:
+https://deep-neural-networks-for-neurophysiology.readthedocs.io
 
 ## Requirements:
  * python >= 3.5
  * pytorch >= 1.3
  * mne >= 0.20
+ * pyyaml
+ * pyyaml-include
  * numpy
  * pandas
  * tqdm
