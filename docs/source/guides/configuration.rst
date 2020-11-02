@@ -8,7 +8,7 @@ The Configuratron
 Why do I need this?
 ===================
 Configuration files are perhaps where the advantages of DN3 are most apparent. Ostensibly, integrating *multiple*
-datasets across a common deep learning is as simple as loading files of each dataset from disk to be fed into a common
+datasets to train a single process is as simple as loading files of each dataset from disk to be fed into a common
 deep learning training loop. The reality however, is rarely that simple. DN3 uses `YAML <https://yaml.org/>`_ formatted
 configuration files to streamline this process, and better organize the integration of *many* datasets.
 
@@ -30,8 +30,7 @@ A Little More Specific
 Say we were evaluating a neural network architecture with some of our
 own data. We are happy with how it is currently working, but want to now evaluate it against a public dataset to
 compare with other work. Most of the time, this means writing a decent bit of code to load this new dataset. Instead,
-DN3 proposes that if it is in a consistent directory structure, and uses a known (you can also specify your own custom
-written file loader *coming soon*) file format, it should be as simple as:
+DN3 proposes that it should be as simple as:
 
 .. code-block:: yaml
 
@@ -63,11 +62,13 @@ Want to bandpass filter this data between 0.1Hz and 40Hz before use?
 
 
 Hopefully this illustrates the advantage of organized datasets and configuration files, no boilerplate needed, you'll
-get nicely prepared and consistent dataset abstractions (see :ref:`dataset_guide`).
+get nicely prepared and consistent dataset abstractions (see :ref:`dataset_guide`). Not only this, but it allows for
+people to share their *configurations*, for better reproducibility.
 
-A Concrete Example
-==================
-It take a little more to make this a DN3 configuration, but it's as simple as adding an empty **Configuratron** to the
+A Full Concrete Example
+=======================
+It takes a little more to make this a DN3 configuration, as we need to specify the existence of an experiment.
+Don't panic, it's as simple as adding an empty **Configuratron** to the
 yaml file that makes your configuration. Consider the contents of 'my_config.yml':
 
 .. code-block:: yaml
@@ -94,8 +95,9 @@ yaml file that makes your configuration. Consider the contents of 'my_config.yml
      activation: 'relu'
      dropout: 0.1
 
-The important entry here is `Configuratron`, that confirms the file-type, and `datasets` that lists the datasets
-we are going to use. The latter can either be named entries like the above, or a list of unnamed entries.
+The important entry here is `Configuratron`, that confirms this is an entry-point for the configuratron,
+and `datasets` that lists the datasets we could use. The latter can either be named entries like the above,
+or a list of unnamed entries.
 
 Now, on the python side of things:
 
@@ -109,7 +111,7 @@ Now, on the python side of things:
        dataset = ds_config.auto_construct_dataset()
        # Do some awesome things
 
-The`dataset` variable above is now a DN3 :any:`Dataset`, which now readily supports loading trials for training or
+The `dataset` variable above is now a DN3 :any:`Dataset`, which now readily supports loading trials for training or
 separation according to people and/or sessions. Both the `in_house_dataset` and `public_dataset` will be available.
 
 That's great, but what's up with that 'architecture' entry?
@@ -129,6 +131,9 @@ architecture configurations (potentially backed by your favourite cloud-based hy
 
 More directives might be added to the configuratron in the future, and we warmly welcome any suggestions/implementations
 others may come up with.
+
+Further, that `Configuratron` entry above also allows for a variety of experiment-level options, which allows for
+common sets of channels, automatic adjustments of sampling frequencies and more. The trick is you need to keep reading.
 
 Complete listing of configuratron (experiment level) options
 ============================================================
