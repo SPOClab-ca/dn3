@@ -24,12 +24,13 @@ def same_channel_sets(channel_sets: list):
 
 
 class InstanceTransform(object):
-    """
-    Trial transforms are, for the most part, simply operations that are performed on the loaded tensors when they are
-    fetched via the :meth:`__call__` method. Ideally this is implemented with pytorch operations for ease of execution
-    graph integration.
-    """
+
     def __init__(self, only_trial_data=True):
+        """
+        Trial transforms are, for the most part, simply operations that are performed on the loaded tensors when they are
+        fetched via the :meth:`__call__` method. Ideally this is implemented with pytorch operations for ease of execution
+        graph integration.
+        """
         self.only_trial_data = only_trial_data
 
     def __str__(self):

@@ -10,7 +10,10 @@ class _SingleAxisOperation(nn.Module):
     def forward(self, x):
         raise NotImplementedError
 
-# Some general purpose simple layers
+# Some general purpose convenience layers
+# ---------------------------------------
+
+
 class Expand(_SingleAxisOperation):
     def forward(self, x):
         return x.unsqueeze(self.axis)
@@ -91,10 +94,30 @@ class ConvBlock2D(nn.Module):
         input = self.batch_norm(input)
         return input + res if self.residual else input
 
+# ---------------------------------------
+
 
 # New layers
+# ---------------------------------------
+
+
 class DenseFilter(nn.Module):
     def __init__(self, in_features, growth_rate, filter_len=5, do=0.5, bottleneck=2, activation=nn.LeakyReLU, dim=-2):
+        """
+        This DenseNet-inspired filter block features in the TIDNet network from Kostas & Rudzicz 2020 (Thinker
+        Invariance). 2D convolution is used, but with a kernel that only spans one of the dimensions. In TIDNet it is
+        used to develop channel operations independently of temporal changes.
+
+        Parameters
+        ----------
+        in_features
+        growth_rate
+        filter_len
+        do
+        bottleneck
+        activation
+        dim
+        """
         super().__init__()
         dim = dim if dim > 0 else dim + 4
         if dim < 2 or dim > 3:
@@ -118,6 +141,21 @@ class DenseFilter(nn.Module):
 class DenseSpatialFilter(nn.Module):
     def __init__(self, channels, growth, depth, in_ch=1, bottleneck=4, dropout_rate=0.0, activation=nn.LeakyReLU,
                  collapse=True):
+        """
+        This extends the :any:`DenseFilter` to specifically operate in channel space and collapse this dimension
+        over the course of `depth` layers.
+
+        Parameters
+        ----------
+        channels
+        growth
+        depth
+        in_ch
+        bottleneck
+        dropout_rate
+        activation
+        collapse
+        """
         super().__init__()
         self.net = nn.Sequential(*[
             DenseFilter(in_ch + growth * d, growth, bottleneck=bottleneck, do=dropout_rate,
@@ -162,27 +200,22 @@ class SpatialFilter(nn.Module):
         return x + self.residual(res) if self.residual else x
 
 
-class LinearSourceSubtraction(nn.Module):
-
-    def __init__(self, channels, zero_self=True, drop_chs=None):
-        super().__init__()
-        if drop_chs is not None:
-            assert isinstance(drop_chs, (list, tuple))
-        self.drop_chs = drop_chs
-        self.filter = nn.Conv1d(channels, channels, 1, bias=False)
-        self.filter.weight.data.zero_()
-        self.zero_self = nn.Parameter(1 - torch.eye(channels), requires_grad=False) if zero_self else None
-        self.filter_norm = nn.LayerNorm(channels)
-
-    def forward(self, x):
-        if self.zero_self is not None:
-            self.filter.weight.data = self.filter.weight.data * self.zero_self.unsqueeze(-1)
-        x = x - self.filter(x)
-        return self.filter_norm(x.permute([0, 2, 1])).permute([0, 2, 1])
-
-
 class TemporalFilter(nn.Module):
+
     def __init__(self, channels, filters, depth, temp_len, dropout=0., activation=nn.LeakyReLU, residual='netwise'):
+        """
+        This implements the dilated temporal-only spanning convolution from TIDNet.
+
+        Parameters
+        ----------
+        channels
+        filters
+        depth
+        temp_len
+        dropout
+        activation
+        residual
+        """
         super().__init__()
         temp_len = temp_len + 1 - temp_len % 2
         self.residual_style = str(residual)

@@ -3,9 +3,16 @@ Transforms
 
 .. contents:: :local:
 
-Transforms
-----------
-.. automodule:: dn3.transforms.basic
+Instance Transforms
+-------------------
+.. automodule:: dn3.transforms.instance
+   :members:
+   :autosummary:
+
+
+Batch Transforms
+----------------
+.. automodule:: dn3.transforms.batch
    :members:
    :autosummary:
 

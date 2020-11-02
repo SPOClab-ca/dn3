@@ -69,6 +69,7 @@ class ExperimentConfig:
     def __init__(self, config_filename: str, adopt_auxiliaries=True):
         """
         Parses DN3 configuration files. Checking the DN3 token for listed datasets.
+
         Parameters
         ----------
         config_filename : str
@@ -133,6 +134,7 @@ class DatasetConfig:
                  samples=None, sfreq=None, preload=False, return_trial_ids=False):
         """
         Parses dataset entries in DN3 config
+
         Parameters
         ----------
         name : str
@@ -283,14 +285,19 @@ class DatasetConfig:
         handler : callable
                   Callback with signature f(path_to_file: str) -> mne.io.Raw
 
-        Returns
-        -------
-
         """
         assert callable(handler)
         self._extension_handlers[extension] = handler
 
     def scan_toplevel(self):
+        """
+        Scan the provided toplevel for all files that may belong to the dataset.
+
+        Returns
+        -------
+        files: list
+               A listing of all the candidate filepaths (before excluding those that match exclusion criteria).
+        """
         files = list()
         pbar = tqdm.tqdm(self.extensions,
                          desc="Scanning {}. If there are a lot of files, this may take a while...".format(
@@ -310,8 +317,7 @@ class DatasetConfig:
                 return True
         return False
 
-    def is_exlcuded(self, f: Path, person_name, session_name):
-
+    def is_excluded(self, f: Path, person_name, session_name):
         if self._is_narrowly_excluded(person_name, session_name):
             return True
 
@@ -376,7 +382,7 @@ class DatasetConfig:
             person_name = self._get_person_name(sess_file)
             session_name = self._get_session_name(sess_file)
 
-            if self.is_exlcuded(sess_file, person_name, session_name):
+            if self.is_excluded(sess_file, person_name, session_name):
                 continue
 
             if person_name in mapping:

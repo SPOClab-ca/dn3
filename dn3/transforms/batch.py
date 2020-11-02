@@ -3,12 +3,13 @@ import numpy as np
 
 
 class BatchTransform(object):
-    """
-    Batch transforms are operations that are performed on trial tensors after being accumulated into batches via the
-    :meth:`__call__` method. Ideally this is implemented with pytorch operations for ease of execution graph
-    integration.
-    """
+
     def __init__(self, only_trial_data=True):
+        """
+        Batch transforms are operations that are performed on trial tensors after being accumulated into batches via the
+        :meth:`__call__` method. Ideally this is implemented with pytorch operations for ease of execution graph
+        integration.
+        """
         self.only_trial_data = only_trial_data
 
     def __str__(self):

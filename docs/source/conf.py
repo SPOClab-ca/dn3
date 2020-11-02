@@ -34,6 +34,7 @@ extensions = [
     'sphinx.ext.autodoc',
     'sphinx.ext.napoleon',
     'autodocsumm',
+    'sphinx.ext.imgconverter',
 ]
 
 # Add any paths that contain templates here, relative to this directory.

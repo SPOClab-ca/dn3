@@ -173,6 +173,18 @@ class Classifier(DN3BaseModel):
 class StrideClassifier(Classifier, metaclass=ABCMeta):
 
     def __init__(self, targets, samples, channels, stride_width=2, return_features=False):
+        """
+        Instead of summarizing the entire temporal dimension into a single prediction, a prediction kernel is swept over
+        the final sequence representation and generates predictions at each step.
+
+        Parameters
+        ----------
+        targets
+        samples
+        channels
+        stride_width
+        return_features
+        """
         self.stride_width = stride_width
         super(StrideClassifier, self).__init__(targets, samples, channels, return_features=return_features)
 

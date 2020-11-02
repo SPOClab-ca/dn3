@@ -7,37 +7,6 @@ from .processes import BaseProcess, StandardClassification
 from .models import Classifier
 
 
-class DonchinSpeller(BaseProcess):
-
-    def __init__(self, p300_detector: torch.nn.Module, detector_len: int, aggregator: torch.nn.Module, end_to_end=False,
-                 loss_fn=None, cuda=False):
-        self.detector = p300_detector
-        self.detector_len = detector_len
-        self.aggregator = aggregator
-        self.loss = torch.nn.CrossEntropyLoss() if loss_fn is None else loss_fn
-        super().__init__(cuda=cuda)
-
-    def build_network(self, **kwargs):
-        pass
-
-    def parameters(self):
-        return self.detector.parameters() + self.aggregator.parameters()
-
-    def train_step(self, *inputs):
-        self.classifier.train(True)
-        return super(BaseProcess, self).train_step(*inputs)
-
-    def evaluate(self, dataset: DN3ataset):
-        self.classifier.train(False)
-        return super(BaseProcess, self).evaluate(dataset)
-
-    def forward(self, *inputs):
-        return self.classifier(inputs[0])
-
-    def calculate_loss(self, inputs, outputs):
-        return self.loss(outputs, inputs[-1])
-
-
 class TVector(Classifier):
 
     def __init__(self, num_target_people=None, channels=len(DEEP_1010_CHS_LISTING), hidden_size=384, dropout=0.1,

@@ -17,10 +17,11 @@ from torch.utils.data import ConcatDataset, DataLoader
 
 
 class DN3ataset(TorchDataset):
-    """
-    Base class for that specifies the interface for DN3 datasets.
-    """
+
     def __init__(self):
+        """
+        Base class for that specifies the interface for DN3 datasets.
+        """
         self._transforms = list()
         self._safe_mode = False
         self._mutli_proc_start = None
@@ -34,14 +35,32 @@ class DN3ataset(TorchDataset):
 
     @property
     def sfreq(self):
+        """
+        Returns
+        -------
+        sampling_frequency: float, list
+                            The sampling frequencies employed by the dataset.
+        """
         raise NotImplementedError
 
     @property
     def channels(self):
+        """
+        Returns
+        -------
+        channels: list
+                  The channel sets used by the dataset.
+                """
         raise NotImplementedError
 
     @property
     def sequence_length(self):
+        """
+        Returns
+        -------
+        sequence_length: int, list
+                         The length of each instance in number of samples
+            """
         raise NotImplementedError
 
     def clone(self):
@@ -331,7 +350,7 @@ class EpochTorchRecording(_Recording):
     def __init__(self, epochs: mne.Epochs, session_id=0, person_id=0, force_label=None, cached=False,
                  ch_ind_picks=None, event_mapping=None, skip_epochs=None):
         """
-        Wraps :any:`Epoch` objects so that they conform to the :any:`Recording` structure.
+        Wraps :any:`mne.Epochs` instances so that they conform to the :any:`Recording` API.
 
         Parameters
         ----------
@@ -349,6 +368,7 @@ class EpochTorchRecording(_Recording):
         super().__init__(epochs.info, session_id, person_id, epochs.tmax - epochs.tmin + 1 / epochs.info['sfreq'],
                          ch_ind_picks)
         self.epochs = epochs
+        # TODO scrap this cache option, it seems utterly redundant now
         self._cache = [None for _ in range(len(epochs.events))] if cached else None
         self.force_label = force_label if force_label is None else torch.tensor(force_label)
         if event_mapping is None:
@@ -626,6 +646,14 @@ class Thinker(DN3ataset, ConcatDataset):
         self._transforms.append(transform)
 
     def get_targets(self):
+        """
+        Collect all the targets (i.e. labels) that this Thinker's data is annotated with.
+
+        Returns
+        -------
+        targets: np.ndarray
+                 A numpy-formatted array of all the targets/label for this thinker.
+        """
         targets = list()
         for sess in self.sessions:
             if hasattr(self.sessions[sess], 'get_targets'):
@@ -1068,6 +1096,14 @@ class Dataset(DN3ataset, ConcatDataset):
         self._transforms = list()
 
     def get_targets(self):
+        """
+        Collect all the targets (i.e. labels) that this Thinker's data is annotated with.
+
+        Returns
+        -------
+        targets: np.ndarray
+                 A numpy-formatted array of all the targets/label for this thinker.
+        """
         targets = list()
         for tid in self.thinkers:
             if hasattr(self.thinkers[tid], 'get_targets'):

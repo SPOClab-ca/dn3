@@ -140,6 +140,17 @@ def _trial_stdev(x):
 class SingleStatisticSpanRejection:
 
     def __init__(self, dataset, mask_ind=-1, stat_fn=_trial_stdev, **dataloader_kwargs):
+        """
+        With larger datasets, it may be prudent to triage the data based on global statistics. Here spans of time are
+        rejected based on a provided statistic (default stdev) by creating a report readable by the :any:`Configuratron`
+
+        Parameters
+        ----------
+        dataset
+        mask_ind
+        stat_fn
+        dataloader_kwargs
+        """
         assert callable(stat_fn)
         self.stat_fn = stat_fn
 
