@@ -93,5 +93,12 @@ class TestInstanceTransforms(unittest.TestCase):
         stringify_channel_mapping(ch_names, transform.mapping.numpy())
 
 
+class TestBatchTransforms(unittest.TestCase):
+
+    def setUp(self) -> None:
+        mne.set_log_level(False)
+        self.dataset = create_dummy_dataset()
+
+
 if __name__ == '__main__':
     unittest.main()

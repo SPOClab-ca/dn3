@@ -163,8 +163,11 @@ class SingleStatisticSpanRejection:
         self.reset()
 
     @staticmethod
-    def from_precollected_statistics(precollected):
-        pass
+    def from_precollected_statistics(dataset, precollected):
+        new = SingleStatisticSpanRejection(dataset)
+        new.reset()
+        new.statistic_lookup = precollected
+        return new
 
     def reset(self, rejections_only=False):
         self.rejections = {thid: {sid: [] for sid in self.dataset.thinkers[thid].sessions.keys()} for thid in
@@ -185,7 +188,7 @@ class SingleStatisticSpanRejection:
     @property
     def valid_stats(self):
         valid_stats = list()
-        for tid in self.statistic_lookup:
+        for tid in tqdm.tqdm(self.statistic_lookup, desc="Collecting...", unit="Person"):
             for sid in self.statistic_lookup[tid]:
                 for i, stat in enumerate(self.statistic_lookup[tid][sid]):
                     if i not in self.rejections[tid][sid]:
@@ -320,7 +323,7 @@ class SingleStatisticSpanRejection:
             stride = self.dataset.thinkers[tid].sessions[sid].stride
             return trial_id * stride, trial_id * stride + self._sequence_length
 
-        for tid in self.statistic_lookup:
+        for tid in tqdm.tqdm(self.statistic_lookup, desc="Determining bad spans...", unit='person'):
             for sid in self.statistic_lookup[tid]:
                 rejects = self.rejections[tid][sid]
                 if len(rejects) == 0:

@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.abspath('../..'))
 
 # -- Project information -----------------------------------------------------
 
-project = 'Deep Neural Networks for Neurophysiology (DN3)'
+project = 'DN3'
 copyright = '2020, Demetres Kostas'
 author = 'Demetres Kostas'
 

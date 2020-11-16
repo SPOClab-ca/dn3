@@ -16,9 +16,9 @@ For the most part, DN3 datasets are a simple wrapping around `MNE's <https://mne
 
 Thus there are three main interfaces:
 
-  1. The :any:`_Recording` base class
+  1. The :any:`Recording <_Recording>` classes
 
-     - With :any:`RawTorchRecording` and :any:`EpochTorchRecording` subclasses
+     - :any:`RawTorchRecording` and :any:`EpochTorchRecording`
 
   2. The :any:`Thinker` class, that collects a set of a *single person's* sessions
   3. The :any:`Dataset` class, that collects a set of multiple :any:`Thinker` that performed the same task under the
