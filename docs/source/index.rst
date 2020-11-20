@@ -7,9 +7,9 @@ Welcome to the Deep Neural Networks for Neurophysiology (DN3) Toolbox documentat
 ====================================================================================
 
 This Python package is an effort to bridge the gap between the neuroscience library MNE-Python and
-the deep learning library PyTorch. This package's main focus is on minimizing boilerplate, leveraging known solutions
-quickly and increasing the reproducibility of *new deep-learning solutions* for the analysis of M/EEG data *(and
-may be compatible with other similar data... use at your own risk).*
+the deep learning library PyTorch. This package's main focus is on minimizing boilerplate code, rapid deployment of
+known solutions, and increasing the reproducibility of *new deep-learning solutions* for the analysis of M/EEG data
+*(and may be compatible with other similar data... use at your own risk).*
 
 Access to the code can be found at https://github.com/SPOClab-ca/dn3
 
@@ -17,8 +17,7 @@ Access to the code can be found at https://github.com/SPOClab-ca/dn3
    :alt: Overview of DN3 modules
 
 The image above sketches out the structure of how the different modules of DN3 work together, but if you are new, we
-recommend starting with the :doc:`configuration guide <../guides/configuration>` . This is perhaps the most unique
-feature of the
+recommend starting with the :doc:`configuration guide <../guides/configuration>`.
 
 .. toctree::
    :glob:

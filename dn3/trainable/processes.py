@@ -700,6 +700,7 @@ class StandardClassification(BaseProcess):
                                                        balance_method=balance_method,
                                                        **loader_kwargs)
 
+    BALANCE_METHODS = ['undersample', 'oversample', 'ldam']
     def _make_dataloader(self, dataset, training=False, **loader_kwargs):
         if isinstance(dataset, DataLoader):
             return dataset
@@ -709,17 +710,19 @@ class StandardClassification(BaseProcess):
         if training and loader_kwargs.get('sampler', None) is None and loader_kwargs.get('balance_method', None) \
                 is not None:
             method = loader_kwargs.pop('balance_method')
-            assert method.lower() in ['undersample', 'oversample']
+            assert method.lower() in self.BALANCE_METHODS
             if not hasattr(dataset, 'get_targets'):
                 print("Failed to create dataloader with {} balancing. {} does not support `get_targets()`.".format(
                     method, dataset
                 ))
-            else:
+            elif method.lower() != 'ldam':
                 sampler = balanced_undersampling(dataset) if method.lower() == 'undersample' \
                     else balanced_oversampling(dataset)
                 # Shuffle is implied by the balanced sampling
                 loader_kwargs['shuffle'] = None
                 loader_kwargs['sampler'] = sampler
+            else:
+                self.loss = create_ldam_loss(dataset)
 
         # Make sure balance method is not passed to DataLoader at this point.
         loader_kwargs.pop('balance_method', None)
@@ -762,3 +765,44 @@ def balanced_oversampling(dataset, replacement=True):
     tqdm.tqdm.write("Oversampling for balanced distribution.")
     sample_weights, counts = get_label_balance(dataset)
     return WeightedRandomSampler(sample_weights, len(counts) * int(counts.max()), replacement=replacement)
+
+
+class LDAMLoss(torch.nn.Module):
+    # September 2020 - Originally taken from: https://github.com/kaidic/LDAM-DRW/blob/master/losses.py
+    # October   2020 - Modified to support non-cuda devices and a switch to activate drw
+
+    def __init__(self, cls_num_list, max_m=0.5, weight=None, s=30):
+        super(LDAMLoss, self).__init__()
+        self._cls_nums = cls_num_list
+        m_list = 1.0 / np.sqrt(np.sqrt(cls_num_list))
+        m_list = m_list * (max_m / np.max(m_list))
+        m_list = torch.FloatTensor(m_list)
+        self.m_list = m_list
+        assert s > 0
+        self.s = s
+        self.weight = weight
+
+    def _determine_drw_weights(self, beta=0.9999):
+        effective_num = 1.0 - np.power(beta, self._cls_nums)
+        per_cls_weights = (1.0 - beta) / np.array(effective_num)
+        return per_cls_weights / np.sum(per_cls_weights) * len(self._cls_nums)
+
+    def drw(self, on=True, beta=0.9999):
+        self.weight = self._determine_drw_weights(beta=beta) if on else None
+
+    def forward(self, x, target):
+        index = torch.zeros_like(x, dtype=torch.uint8)
+        index.scatter_(1, target.data.view(-1, 1), 1)
+
+        index_float = index.float()
+        batch_m = torch.matmul(self.m_list[None, :].to(index.device), index_float.transpose(0, 1))
+        batch_m = batch_m.view((-1, 1))
+        x_m = x - batch_m
+
+        output = torch.where(index, x_m, x)
+        return torch.nn.functional.cross_entropy(self.s * output, target, weight=self.weight)
+
+
+def create_ldam_loss(training_dataset):
+    sample_weights, counts = get_label_balance(training_dataset)
+    return LDAMLoss(counts)
