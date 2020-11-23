@@ -58,7 +58,6 @@ def binarize(func):
     return wrapper
 
 
-@binarize
 @dn3_sklearn_metric
 def auroc(y_t, y_p):
     return skmetrics.roc_auc_score(y_t, y_p)

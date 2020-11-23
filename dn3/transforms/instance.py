@@ -383,6 +383,39 @@ class Deep1010ToEEG(InstanceTransform):
         return x
 
 
+class To1020(InstanceTransform):
+
+    EEG_20_div = [
+               'FP1', 'FP2',
+        'F7', 'F3', 'FZ', 'F4', 'F8',
+        'T3', 'C3', 'CZ', 'C4', 'T4',
+        'T5', 'P3', 'PZ', 'P4', 'T6',
+                'O1', 'O2'
+    ]
+
+    def __init__(self, only_trial_data=True, include_scale_ch=True, include_ref_chs=False):
+        """
+        Transforms incoming Deep1010 data into exclusively the more limited 1020 channel set.
+        """
+        super(To1020, self).__init__(only_trial_data=only_trial_data)
+        self._inds_20_div = [DEEP_1010_CHS_LISTING.index(ch) for ch in self.EEG_20_div]
+        if include_ref_chs:
+            self._inds_20_div.append([DEEP_1010_CHS_LISTING.index(ch) for ch in ['A1', 'A2']])
+        if include_scale_ch:
+            self._inds_20_div.append(SCALE_IND)
+
+    def new_channels(self, old_channels):
+        return old_channels[self._inds_20_div]
+
+    def __call__(self, *x):
+        x = list(x)
+        for i in range(len(x)):
+            # Assume every tensor that has deep1010 length should be modified
+            if len(x[i].shape) > 0 and x[i].shape[0] == len(DEEP_1010_CHS_LISTING):
+                x[i] = x[i][self._inds_20_div, ...]
+        return x
+
+
 class MaskAuxiliariesDeep1010(InstanceTransform):
 
     MASK_THESE = REF_INDS + EOG_INDS + EXTRA_INDS

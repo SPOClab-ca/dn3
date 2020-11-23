@@ -785,7 +785,7 @@ class LDAMLoss(torch.nn.Module):
     def _determine_drw_weights(self, beta=0.9999):
         effective_num = 1.0 - np.power(beta, self._cls_nums)
         per_cls_weights = (1.0 - beta) / np.array(effective_num)
-        return per_cls_weights / np.sum(per_cls_weights) * len(self._cls_nums)
+        return torch.from_numpy(per_cls_weights / np.sum(per_cls_weights) * len(self._cls_nums)).float()
 
     def drw(self, on=True, beta=0.9999):
         self.weight = self._determine_drw_weights(beta=beta) if on else None
@@ -800,7 +800,8 @@ class LDAMLoss(torch.nn.Module):
         x_m = x - batch_m
 
         output = torch.where(index, x_m, x)
-        return torch.nn.functional.cross_entropy(self.s * output, target, weight=self.weight)
+        w = self.weight.to(index.device) if self.weight is not None else None
+        return torch.nn.functional.cross_entropy(self.s * output, target, weight=w)
 
 
 def create_ldam_loss(training_dataset):
