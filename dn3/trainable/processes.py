@@ -564,7 +564,8 @@ class BaseProcess(object):
 
                 if isinstance(validation_interval, int) and (iteration % validation_interval == 0)\
                         and validation_dataset is not None:
-                    _validation(epoch, iteration)
+                    _m = _validation(epoch, iteration)
+                    best_model = self._retain_best(best_model, _m, retain_best)
 
             # Make epoch summary
             metrics = DataFrame(train_log)
