@@ -407,6 +407,11 @@ class DatasetConfig:
 
         This is used to load unconventional files, e.g. '.mat' files from matlab, or custom '.npy' arrays, etc.
 
+        Notes
+        -----
+        Consider using :any:`mne.io.Raw.add_events()` to integrate otherwise difficult (for the configuratron) to better
+        specify events for each recording.
+
         Parameters
         ----------
         custom_loader: callable

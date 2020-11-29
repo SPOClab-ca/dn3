@@ -58,7 +58,7 @@ def binarize(func):
     return wrapper
 
 
-@dn3_sklearn_metric
+@binarize
 def auroc(y_t, y_p):
     return skmetrics.roc_auc_score(y_t, y_p)
 
@@ -66,3 +66,8 @@ def auroc(y_t, y_p):
 @dn3_sklearn_metric
 def balanced_accuracy(y_t, y_p):
     return skmetrics.balanced_accuracy_score(y_t, y_p)
+
+
+@dn3_sklearn_metric
+def kappa(y_t, y_p):
+    return skmetrics.cohen_kappa_score(y_t, y_p)

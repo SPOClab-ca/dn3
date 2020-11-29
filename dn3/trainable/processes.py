@@ -369,7 +369,7 @@ class BaseProcess(object):
         best : Any
                Whatever format is needed for :py:meth:`load_best()`, will be the argument provided to it.
         """
-        return [self.__dict__[m].state_dict() for m in self._trainables]
+        return [{k: v.cpu() for k, v in self.__dict__[m].state_dict().items()} for m in self._trainables]
 
     def load_best(self, best):
         """
@@ -380,7 +380,7 @@ class BaseProcess(object):
         best: Any
         """
         for m, state_dict in zip(self._trainables, best):
-            self.__dict__[m].load_state_dict(state_dict)
+            self.__dict__[m].load_state_dict({k: v.to(self.device) for k, v in state_dict.items()})
 
     def _retain_best(self, old_checkpoint, metrics_to_check: dict, retain_string: str):
         if retain_string is None:
