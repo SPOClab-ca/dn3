@@ -9,7 +9,7 @@ Focused on:
    * Pre-processing and data transformations
    
 See guides and documentation at:
-https://deep-neural-networks-for-neurophysiology.readthedocs.io
+https://dn3.readthedocs.io/en/latest/
 
 ## Requirements:
  * python >= 3.5
