@@ -388,7 +388,7 @@ class To1020(InstanceTransform):
     EEG_20_div = [
                'FP1', 'FP2',
         'F7', 'F3', 'FZ', 'F4', 'F8',
-        'T3', 'C3', 'CZ', 'C4', 'T4',
+        'T7', 'C3', 'CZ', 'C4', 'T8',
         'T5', 'P3', 'PZ', 'P4', 'T6',
                 'O1', 'O2'
     ]

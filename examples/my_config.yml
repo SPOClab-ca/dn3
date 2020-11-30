@@ -1,0 +1,28 @@
+Configuratron:
+  preload: True
+
+use_gpu: False
+
+mmidb:
+  name: "Physionet MMIDB"
+  toplevel: /path/to/eegmmidb
+  tmin: 0
+  tlen: 6
+  data_max: 0.001
+  data_min: -0.001
+  events:
+    - T1
+    - T2
+  exclude_sessions:
+    - "*R0[!48].edf"  # equivalently "*R0[1235679].edf"
+    - "*R1[!2].edf"   # equivalently "*R1[134].edf"
+  exclude_people:
+    - S088
+    - S090
+    - S092
+    - S100
+  train_params:
+    epochs: 7
+    batch_size: 4
+  lr: 0.0001
+  folds: 5
