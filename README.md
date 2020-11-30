@@ -1,4 +1,4 @@
-# Dn<sup>3</sup> - Deep Neural Networks for Neuro-physiology
+# DN3 - Deep Neural Networks for Neuro-physiology
 Bridge for training deep neural-network models with neuroscientific data managed using MNE.
 
 Focused on:
