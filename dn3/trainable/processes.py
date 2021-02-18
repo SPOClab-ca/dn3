@@ -7,8 +7,9 @@ from dn3.trainable.models import Classifier
 from dn3.transforms.batch import BatchTransform
 
 # Swap these two for Ipython/Jupyter
-import tqdm
+# import tqdm
 # import tqdm.notebook as tqdm
+import tqdm.auto as tqdm
 
 import torch
 # ugh the worst, why did they make this protected...
