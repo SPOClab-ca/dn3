@@ -136,13 +136,17 @@ class BaseProcess(object):
         loader_kwargs.setdefault('pin_memory', self.cuda == 'cuda')
         # Use multiple worker processes when NOT DEBUGGING
         if gettrace() is None:
-            # Find number of cpus available (taken from second answer):
-            # https://stackoverflow.com/questions/1006289/how-to-find-out-the-number-of-cpus-using-python
-            m = re.search(r'(?m)^Cpus_allowed:\s*(.*)$',
-                          open('/proc/self/status').read())
-            nw = bin(int(m.group(1).replace(',', ''), 16)).count('1')
-            # Cap the number of workers at 6 (actually 4) to avoid pummeling disks too hard
-            nw = min(num_worker_cap, nw)
+            try:
+                # Find number of cpus available (taken from second answer):
+                # https://stackoverflow.com/questions/1006289/how-to-find-out-the-number-of-cpus-using-python
+                m = re.search(r'(?m)^Cpus_allowed:\s*(.*)$',
+                              open('/proc/self/status').read())
+                nw = bin(int(m.group(1).replace(',', ''), 16)).count('1')
+                # Cap the number of workers at 6 (actually 4) to avoid pummeling disks too hard
+                nw = min(num_worker_cap, nw)
+            except FileNotFoundError:
+                # Fallback for when proc/self/status does not exist
+                nw = 2
         else:
             # 0 workers means not extra processes are spun up
             nw = 2
