@@ -13,6 +13,11 @@ known solutions, and increasing the reproducibility of *new deep-learning soluti
 
 Access to the code can be found at https://github.com/SPOClab-ca/dn3
 
+Associated pre-print *(article under review)* can be found at:
+ https://www.biorxiv.org/content/10.1101/2020.12.17.423197v1
+
+*Please consider citing the above in any scholarly work that uses this library.*
+
 .. image:: images/DN3-overview.*
    :alt: Overview of DN3 modules
 
