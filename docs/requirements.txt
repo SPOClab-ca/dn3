@@ -1,5 +1,5 @@
 autodocsumm==0.1.13
-pyyaml==5.3.1
+pyyaml==5.4
 pyyaml-include==1.2
 torch>=1.5.0
 mne>=0.20.3
