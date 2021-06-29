@@ -4,6 +4,8 @@ import copy
 import bisect
 import tqdm
 import numpy as np
+import torch.multiprocessing as mp
+from torch.utils.data.dataset import T_co
 
 from dn3.transforms.preprocessors import Preprocessor
 from dn3.transforms.instance import InstanceTransform, same_channel_sets
@@ -12,6 +14,7 @@ from dn3.utils import rand_split, unfurl, DN3atasetNanFound
 from abc import ABC
 from collections import OrderedDict
 from collections.abc import Iterable
+from pathlib import Path
 from torch.utils.data import Dataset as TorchDataset
 from torch.utils.data import ConcatDataset, DataLoader
 
@@ -276,7 +279,7 @@ class RawTorchRecording(_Recording):
         self._recording_len = int(tlen * self._recording_sfreq)
         self.stride = stride
         # Implement my own (rather than mne's) in-memory buffer when there are savings
-        self._stride_load = self.decimate > 1 or (stride > self._recording_len and raw.preload)
+        self._stride_load = self.decimate > 1 or raw.preload
         self.max = kwargs.get('max', None)
         self.min = kwargs.get('min', 0)
         bad_spans = list() if bad_spans is None else bad_spans
@@ -297,7 +300,7 @@ class RawTorchRecording(_Recording):
                 self._decimated_sequence_starts.remove(span_start)
 
         # When the stride is greater than the sequence length, preload savings can be found by chopping the
-        # sequence into subsequences of length sequence length. Also, if decimating, can significantly reduce memory
+        # sequence into subsequences of length: sequence length. Also, if decimating, can significantly reduce memory
         # requirements not otherwise addressed with the Raw object.
         if self._stride_load and len(self._decimated_sequence_starts) > 0:
             x = raw.get_data(self.picks)
@@ -1112,21 +1115,45 @@ class Dataset(DN3ataset, ConcatDataset):
             return None
         return np.concatenate(targets)
 
-    def dump_dataset(self, toplevel, apply_transforms=True):
+    def dump_dataset(self, toplevel, compressed=True, apply_transforms=True):
         """
-        Dumps the dataset to the file location specified by toplevel, with a single file per session made of all the
-        return tensors (as numpy data) loaded by the dataset.
+        Dumps the dataset to the directory specified by toplevel, with a single file per index.
 
         Parameters
         ----------
         toplevel : str
                  The toplevel location to dump the dataset to. This folder (and path) will be created if it does not
-                 exist. Each person will have a subdirectory therein, with numpy-formatted files for each session
-                 within that.
+                 exist.
         apply_transforms: bool
                  Whether to apply the transforms while preparing the data to be saved.
         """
-        # TODO
-        raise NotImplementedError
+        if apply_transforms is False:
+            raise NotImplementedError
+
+        toplevel = Path(toplevel)
+        toplevel.mkdir(exist_ok=True, parents=True)
+
+        for i, x in enumerate(tqdm.tqdm(self, desc="Saving", unit='file')):
+            fp = toplevel / str(i)
+            if compressed:
+                np.savez_compressed(fp, [t.numpy() for t in x])
+            else:
+                np.savez(fp, [t.numpy() for t in x])
 
 # TODO Convenience functions or classes for leave one and leave multiple datasets out.
+
+
+class DumpedDataset(TorchDataset):
+
+    def __init__(self, toplevel):
+        self.toplevel = Path(toplevel)
+        assert self.toplevel.exists()
+        self.filenames = sorted([f for f in self.toplevel.iterdir()])
+
+    def __len__(self):
+        return len(self.filenames)
+
+    def __getitem__(self, index):
+        data = np.load(self.filenames[index])
+        return [torch.from_numpy(data[f'arr_{i}']) for i in range(len(data))]
+
