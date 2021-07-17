@@ -4,12 +4,10 @@ import copy
 import bisect
 import tqdm
 import numpy as np
-import torch.multiprocessing as mp
-from torch.utils.data.dataset import T_co
 
 from dn3.transforms.preprocessors import Preprocessor
 from dn3.transforms.instance import InstanceTransform, same_channel_sets
-from dn3.utils import rand_split, unfurl, DN3atasetNanFound
+from dn3.utils import rand_split, unfurl, DN3atasetNanFound, DN3atasetException
 
 from abc import ABC
 from collections import OrderedDict
@@ -676,6 +674,9 @@ class DatasetInfo(object):
         self.__dict__.update(dict(dataset_name=dataset_name, data_max=data_max, data_min=data_min,
                                   excluded_people=excluded_people, targets=targets))
 
+    def __str__(self):
+        return "{} | {} targets | Excluding {}".format(self.dataset_name, self.targets, self.excluded_people)
+
 
 class Dataset(DN3ataset, ConcatDataset):
     """
@@ -1113,9 +1114,14 @@ class Dataset(DN3ataset, ConcatDataset):
                 targets.append(self.thinkers[tid].get_targets())
         if len(targets) == 0:
             return None
-        return np.concatenate(targets)
+        try:
+            return np.concatenate(targets)
+        # Catch exceptions due to inability to concatenate real targets.
+        except ValueError:
+            return None
 
-    def dump_dataset(self, toplevel, compressed=True, apply_transforms=True):
+    def dump_dataset(self, toplevel, compressed=True, apply_transforms=True, summary_file='dataset-dump.npz',
+                     chunksize=100):
         """
         Dumps the dataset to the directory specified by toplevel, with a single file per index.
 
@@ -1133,27 +1139,97 @@ class Dataset(DN3ataset, ConcatDataset):
         toplevel = Path(toplevel)
         toplevel.mkdir(exist_ok=True, parents=True)
 
-        for i, x in enumerate(tqdm.tqdm(self, desc="Saving", unit='file')):
+        thinkers = self.thinkers.copy()
+        inds = 0
+        for k in self.thinkers.keys():
+            thinkers[k] = np.arange(inds, inds+len(thinkers[k]))
+            inds += len(thinkers[k])
+
+        np.savez_compressed(toplevel / summary_file, version='0.0.1', sfreq=self.sfreq, channels=self.channels,
+                            sequence_length=self.sequence_length, chunksize=chunksize, name=self.info.dataset_name,
+                            thinkers=thinkers, real_length=len(self))
+
+        for i in tqdm.trange(round(len(self) / chunksize), desc="Saving", unit='files'):
             fp = toplevel / str(i)
+            accumulated = list()
+            for j in range(min(chunksize, len(self) - i*chunksize)):
+                accumulated.append(self[i*chunksize + j])
+            accumulated = [torch.stack(z) for z in zip(*accumulated)]
             if compressed:
-                np.savez_compressed(fp, [t.numpy() for t in x])
+                np.savez_compressed(fp, *[t.numpy() for t in accumulated])
             else:
-                np.savez(fp, [t.numpy() for t in x])
+                np.savez(fp, *[t.numpy() for t in accumulated])
 
 # TODO Convenience functions or classes for leave one and leave multiple datasets out.
 
 
-class DumpedDataset(TorchDataset):
+class DumpedDataset(DN3ataset):
 
-    def __init__(self, toplevel):
+    def __init__(self, toplevel, cache_all=False, summary_file='dataset-dump.npz', info=None, cache_chunk_factor=0.1):
+        super(DumpedDataset, self).__init__()
         self.toplevel = Path(toplevel)
         assert self.toplevel.exists()
-        self.filenames = sorted([f for f in self.toplevel.iterdir()])
+        summary_file = self.toplevel / summary_file
+        self.info = info
+        self._summary = np.load(summary_file, allow_pickle=True)
+        self.thinkers = self._summary['thinkers'].flat[0]
+        self._chunksize = self._summary['chunksize']
+        self._num_per_cache = int(cache_chunk_factor * self._chunksize)
+        self._len = self._summary['real_length']
+        assert summary_file.exists()
+        self.filenames = sorted([f for f in self.toplevel.iterdir() if f.name != summary_file.name],
+                                key=lambda f: int(f.stem))
+
+        self.cache = np.empty((self._len, len(self.channels), self.sequence_length)) if cache_all else None
+        self.aux_cache = [None for _ in range(self._len)] if cache_all else None
+
+    def __str__(self):
+        ds_name = self.info.dataset_name if self.info is not None else "Dumped"
+        return ">> {} | {} people | {} trials | {} channels | {} samples/trial | {}Hz | {} transforms | ". \
+               format("ds_name", len(self.thinkers), len(self), len(self.channels),
+                      self.sequence_length, self.sfreq, len(self._transforms))
 
     def __len__(self):
-        return len(self.filenames)
+        return self._len
+
+    @property
+    def sfreq(self):
+        return self._summary['sfreq']
+
+    @property
+    def channels(self):
+        return self._summary['channels']
+
+    @property
+    def sequence_length(self):
+        return self._summary['sequence_length']
+
+    def get_thinkers(self):
+        return list(self.thinkers.keys())
+
+    def preprocess(self, preprocessor: Preprocessor, apply_transform=True):
+        raise DN3atasetException("Can't preprocess dumped dataset. Load from original files to do this.")
 
     def __getitem__(self, index):
-        data = np.load(self.filenames[index])
-        return [torch.from_numpy(data[f'arr_{i}']) for i in range(len(data))]
+        if self.aux_cache is not None and self.aux_cache[index] is not None:
+            print(f"Hit: chunk {index // self._chunksize}, id: {id(self.cache[index // self._chunksize])}")
+            data = [self.cache[index], *self.aux_cache[index]]
+
+        else:
+            idx = index // self._chunksize
+            offset = index % self._chunksize
+
+            data = np.load(self.filenames[idx], allow_pickle=True)
+            if self.aux_cache is not None and self.aux_cache[index] is None:
+                # Put all loaded indexes into the cache
+                # for i in set([offset] + np.random.choice(range(self._chunksize), self._num_per_cache, replace=False)):
+                #     self.cache[int(idx * self._chunksize) + i] = [torch.from_numpy(data[f])[i] for f in data.files]
+                for i in [offset]:
+                    self.cache[index] = torch.from_numpy(data['arr_0'])
+                    self.aux_cache[index] = [torch.from_numpy(data[f])[i] for f in data.files[1:]]
+                data = [self.cache[index], *self.aux_cache[index]]
+            else:
+                data = [torch.from_numpy(data[f])[offset] for f in data.files]
+
+        return self._execute_transforms(*data)
 

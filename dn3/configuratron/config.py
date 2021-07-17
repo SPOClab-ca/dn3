@@ -11,7 +11,7 @@ from pathlib import Path
 from collections import OrderedDict
 from mne import pick_types, read_annotations, set_log_level
 
-from dn3.data.dataset import Dataset, RawTorchRecording, EpochTorchRecording, Thinker, DatasetInfo
+from dn3.data.dataset import Dataset, RawTorchRecording, EpochTorchRecording, Thinker, DatasetInfo, DumpedDataset
 from dn3.utils import make_epochs_from_raw, DN3ConfigException, skip_inds_from_bad_spans
 from dn3.transforms.instance import MappingDeep1010, TemporalInterpolation
 from dn3.transforms.channels import stringify_channel_mapping
@@ -36,6 +36,7 @@ set_log_level(False)
 
 class _DumbNamespace:
     def __init__(self, d: dict):
+        self._d = d.copy()
         for k in d:
             if isinstance(d[k], dict):
                 d[k] = _DumbNamespace(d[k])
@@ -48,6 +49,9 @@ class _DumbNamespace:
 
     def __getitem__(self, item):
         return self.__dict__[item]
+
+    def as_dict(self):
+        return self._d
 
 
 def _adopt_auxiliaries(obj, remaining):
@@ -207,6 +211,7 @@ class DatasetConfig:
         self.name = get_pop('name', name)
         self.dataset_id = get_pop('dataset_id')
         self.preload = get_pop('preload', preload)
+        self.dumped = get_pop('pre-dumped')
         self.hpf = get_pop('hpf', None)
         self.lpf = get_pop('lpf', None)
         self.filter_data = self.hpf is not None or self.lpf is not None
@@ -623,6 +628,18 @@ class DatasetConfig:
         dataset : Dataset
                 An instance of :any:`Dataset`, constructed according to mapping.
         """
+        if self.dumped is not None:
+            path = Path(self.dumped)
+            if path.exists():
+                tqdm.tqdm.write("Found pre-dumped dataset directory at {}".format(self.dumped))
+                info = DatasetInfo(self.name, self.data_max, self.data_min, self._excluded_people,
+                                   targets=self._targets if self._targets is not None else len(self._unique_events))
+                dataset = DumpedDataset(path, info=info)
+                tqdm.tqdm.write(str(dataset))
+                return dataset
+            else:
+                tqdm.tqdm.write("Could not load pre-dumped data, falling back to original data...")
+
         if mapping is None:
             return self.auto_construct_dataset(self.auto_mapping(), **dsargs)
 

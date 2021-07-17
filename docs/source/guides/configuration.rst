@@ -369,3 +369,9 @@ load_onthefly *(bool)*
   at the cost of compute time and increased disk I/O. This is only really helpful if you have a dataset *so large* that
   mne's Raw instances start to fill your memory (this is not impossible, so if you are running out of memory, try
   switching on this option). Currently this does not work with epoched data.
+
+pre-dumped *(path)*
+  Path to a directory where an optionally already preprocessed and/or transformed dataset has been saved. This is
+  listed as a *risky* option, insofar as it ignores pretty much all of the rest of the configuration.
+
+  See :any:`DN3ataset.dump_dataset()` for how to dump the dataset to such a directory.

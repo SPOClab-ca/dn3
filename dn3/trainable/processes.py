@@ -156,7 +156,7 @@ class BaseProcess(object):
         return loader_kwargs
 
     def _get_batch(self, iterator):
-        batch = [x.to(self.device) for x in next(iterator)]
+        batch = [x.to(self.device, non_blocking=self.cuda == 'cuda') for x in next(iterator)]
         xforms = self._batch_transforms if self._training else self._eval_transforms
         for xform in xforms:
             if xform.only_trial_data:
@@ -592,6 +592,7 @@ class BaseProcess(object):
             resume_iteration = 1
 
             if not self.scheduler_after_batch and self.scheduler is not None:
+                tqdm.tqdm.write(f"Step {self.scheduler.get_last_lr()} {self.scheduler.last_epoch}")
                 self.scheduler.step()
 
         if _clear_scheduler_after:
@@ -727,10 +728,13 @@ class StandardClassification(BaseProcess):
                 sampler = balanced_undersampling(dataset) if method.lower() == 'undersample' \
                     else balanced_oversampling(dataset)
                 # Shuffle is implied by the balanced sampling
-                loader_kwargs['shuffle'] = None
+                # loader_kwargs['shuffle'] = None
                 loader_kwargs['sampler'] = sampler
             else:
                 self.loss = create_ldam_loss(dataset)
+
+        if loader_kwargs.get('sampler', None) is not None:
+            loader_kwargs['shuffle'] = None
 
         # Make sure balance method is not passed to DataLoader at this point.
         loader_kwargs.pop('balance_method', None)
