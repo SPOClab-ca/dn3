@@ -258,6 +258,38 @@ class TestDatasetUtils(unittest.TestCase):
         self.assertEqual(len(np_data), 1 + 4 + 1)
         self.assertTrue(np.all([arr.shape[0] == len(self.dataset) for arr in np_data]))
 
+    def test_DumpDataset(self):
+        directory = Path('./dumped-ds/')
+
+        with self.subTest("Save to disk"):
+            self.dataset.dump_dataset(directory, chunksize=10)
+            self.assertTrue(directory.exists())
+            self.assertEqual(len([_ for _ in directory.iterdir()]), round(len(self.dataset) / 10) + 1)
+
+        dumped = DumpedDataset(directory)
+
+        with self.subTest("Re-loaded stats"):
+            self.assertEqual(len(dumped), len(self.dataset))
+            self.assertEqual(dumped.sfreq, self.dataset.sfreq)
+            # self.assertTrue(np.all(dumped.channels, self.dataset.channels))
+            self.assertEqual(dumped.sequence_length, self.dataset.sequence_length)
+
+        def check_data():
+            for i in range(len(dumped)):
+                with self.subTest(ds_idx=i):
+                    orig_x = self.dataset[i]
+                    dump_x = dumped[i]
+                    self.assertEqual(len(dump_x), len(orig_x))
+                    for j in range(len(dump_x)):
+                        with self.subTest(x_idx=j):
+                            self.assertTrue(torch.allclose(dump_x[j], orig_x[j]))
+
+        with self.subTest("Verify Loadable"):
+            check_data()
+
+        with self.subTest("Verify cache"):
+            check_data()
+
     def test_DeviationSpanRejection(self):
         # Less people to speed it up
         raw_dataset = create_dummy_dataset(epoched=False, num_thinkers=2)

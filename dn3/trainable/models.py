@@ -96,6 +96,10 @@ class Classifier(DN3BaseModel):
         super(Classifier, self).__init__(samples, channels, return_features=return_features)
         self.targets = targets
         self.make_new_classification_layer()
+        self._init_state = self.state_dict()
+
+    def reset(self):
+        self.load_state_dict(self._init_state)
 
     def forward(self, *x):
         features = self.features_forward(*x)

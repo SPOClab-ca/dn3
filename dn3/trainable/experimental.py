@@ -10,11 +10,11 @@ from .models import Classifier
 class TVector(Classifier):
 
     def __init__(self, num_target_people=None, channels=len(DEEP_1010_CHS_LISTING), hidden_size=384, dropout=0.1,
-                 ignored_inds=(SCALE_IND,), incoming_channels=None, norm_groups=16):
+                 ignored_inds=(SCALE_IND,), incoming_channels=None, norm_groups=16, return_tvectors=False):
         self.hidden_size = hidden_size
         self.num_target_people = num_target_people
         self.dropout = dropout
-        super().__init__(num_target_people, None, channels)
+        super(TVector, self).__init__(num_target_people, None, channels, return_features=return_tvectors)
         self.ignored_ids = ignored_inds
         self.mapping = None if incoming_channels is None else map_named_channels_deep_1010(incoming_channels)
 
