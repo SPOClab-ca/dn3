@@ -402,8 +402,11 @@ class DatasetConfig:
         mapping = dict()
         for sess_file in files:
             sess_file = Path(sess_file)
-            person_name = self._get_person_name(sess_file)
-            session_name = self._get_session_name(sess_file)
+            try:
+                person_name = self._get_person_name(sess_file)
+                session_name = self._get_session_name(sess_file)
+            except DN3ConfigException:
+                continue
 
             if self.is_excluded(sess_file, person_name, session_name):
                 continue
@@ -598,17 +601,18 @@ class DatasetConfig:
         Parameters
         ----------
         thinker_loader:
-                        A function that takes a list argument that consists of the filenames (str) of all the
-                        detected session for the given thinker and a second argument for the detected name of the
-                        person. The function should return a single instance of type :any:`Thinker`. To gracefully
-                        ignore the person, raise a :any:`DN3ConfigException`
+                        A function that takes a dict argument that consists of the session-ids that map to filenames
+                        (str) of all the detected session for the given thinker and a second argument for the detected
+                        name of the person. The function should return a single instance of type :any:`Thinker`.
+                        To gracefully ignore the person, raise a :any:`DN3ConfigException`
 
         """
         self._custom_thinker_loader = thinker_loader
 
     def _construct_thinker_from_config(self, thinker: list, thinker_id):
+        sessions = {self._get_session_name(Path(s)): s for s in thinker}
         if self._custom_thinker_loader is not None:
-            return self._custom_thinker_loader(thinker, thinker_id)
+            return self._custom_thinker_loader(sessions, thinker_id)
         sessions = dict()
         for sess in thinker:
             sess = Path(sess)
