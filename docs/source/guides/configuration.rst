@@ -370,6 +370,13 @@ load_onthefly *(bool)*
   mne's Raw instances start to fill your memory (this is not impossible, so if you are running out of memory, try
   switching on this option). Currently this does not work with epoched data.
 
+moabb *(str)*
+  This options allows you to specify the name of a `MOABB <https://github.com/NeuroTechX/moabb>`_ dataset. This is the
+  one option for which `toplevel` is not in fact needed, as it will use the moabb-standard `~/mne_data` folder. If the
+  dataset is missing, this should download the missing dataset.
+
+  Specifying the toplevel does still work.
+
 pre-dumped *(path)*
   Path to a directory where an optionally already preprocessed and/or transformed dataset has been saved. This is
   listed as a *risky* option, insofar as it ignores pretty much all of the rest of the configuration.

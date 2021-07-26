@@ -115,6 +115,7 @@ class TestRealDatasetConfiguratron(unittest.TestCase):
         self.minimal_raw = self.experiment_config.datasets['mmidb_minimally_specified_raw']
         self.minimal_epoch = self.experiment_config.datasets['mmidb_minimally_specified_epoch']
         self.fully = self.experiment_config.datasets['mmidb_fully_specified']
+        self.from_moabb = self.experiment_config.datasets['mmidb_moabb']
 
     def test_MinimallySpecifiedRawConstruct(self):
         dataset = self.minimal_raw.auto_construct_dataset()
@@ -154,6 +155,10 @@ class TestRealDatasetConfiguratron(unittest.TestCase):
     def test_CustomLoader(self):
         self.fully.add_custom_raw_loader(lambda path: read_raw_edf(path))
         dataset = self.fully.auto_construct_dataset()
+        self._check_fully_specified_requirements(dataset)
+
+    def test_UseMoabb(self):
+        dataset = self.from_moabb.auto_construct_dataset()
         self._check_fully_specified_requirements(dataset)
 
     def test_SessionCallbacks(self):

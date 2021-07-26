@@ -55,4 +55,37 @@ datasets:
     file_extensions:
       - '.edf'
 
+  mmidb_moabb:
+    moabb:
+      name: PhysionetMI
+      imagined: True
+      executed: False
+    tmin: -0.25
+    tlen: 3
+    name: "MMIDB"
+    events:
+      - left_hand
+      - right_hand
+    picks:
+      - eeg
+    exclude_people:
+      - '88'
+      - '90'
+      - '92'
+      - '100'
+    exclude:
+      "100": ~
+      "101": ~
+      "1":
+        1-session_0-run_3: ~
+      "2":
+        2-session_0-run_4:
+          - [ 0, 60 ]
+    decimate: 1
+    baseline: [ -0.25, ~ ]
+    bandpass: [ 0.1, 20 ]
+    drop_bad: True
+    max: 1.5
+    min: -1.5
+
 

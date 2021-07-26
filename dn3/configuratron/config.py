@@ -15,6 +15,7 @@ from dn3.data.dataset import Dataset, RawTorchRecording, EpochTorchRecording, Th
 from dn3.utils import make_epochs_from_raw, DN3ConfigException, skip_inds_from_bad_spans
 from dn3.transforms.instance import MappingDeep1010, TemporalInterpolation
 from dn3.transforms.channels import stringify_channel_mapping
+from dn3.configuratron.extensions import MoabbDataset
 
 
 _SUPPORTED_EXTENSIONS = {
@@ -229,6 +230,7 @@ class DatasetConfig:
         self._targets = get_pop('targets', None)
         self._unique_events = set()
         self.return_trial_ids = return_trial_ids
+        self.from_moabb = get_pop('moabb')
 
         self._samples = get_pop('samples', samples)
         self._sfreq = sfreq
@@ -240,8 +242,15 @@ class DatasetConfig:
         self._on_the_fly = get_pop('load_onthefly', False)
 
         # Required args
+        # TODO refactor a bit
         try:
-            self.toplevel = Path(config.pop('toplevel'))
+            self.toplevel = get_pop('toplevel')
+            if self.toplevel is None:
+                if self.from_moabb is None:
+                    raise KeyError()
+                else:
+                    self.toplevel = '~/mne_data'
+            self.toplevel = Path(self.toplevel).expanduser()
             self.tlen = config.pop('tlen') if self._samples is None else None
         except KeyError as e:
             raise DN3ConfigException("Could not find required value: {}".format(e.args[0]))
@@ -265,6 +274,15 @@ class DatasetConfig:
         self._thinker_callback = None
         self._custom_raw_loader = None
         self._session_callback = None
+
+        # Extensions
+        if self.from_moabb is not None:
+            try:
+                self.from_moabb = MoabbDataset(self.from_moabb.pop('name'), self.toplevel, **self.from_moabb)
+            except KeyError:
+                raise DN3ConfigException("MOABB configuration is incorrect. Make sure to use 'name' under MOABB to "
+                                         "specify a compatible dataset.")
+            self._custom_raw_loader = self.from_moabb.get_raw
 
     _PICK_TYPES = ['meg', 'eeg', 'stim', 'eog', 'ecg', 'emg', 'ref_meg', 'misc', 'resp', 'chpi', 'exci', 'ias', 'syst',
                    'seeg', 'dipole', 'gof', 'bio', 'ecog', 'fnirs', 'csd', ]
@@ -511,6 +529,8 @@ class DatasetConfig:
         if thinker_id in self.exclude.keys():
             if sess_id in self.exclude[thinker_id].keys():
                 bad_spans = self.exclude[thinker_id][sess_id]
+                if bad_spans is None:
+                    raise DN3ConfigException("Skipping {} - {}".format(thinker_id, sess_id))
 
         def load_and_prepare(sess):
             if not isinstance(sess, Path):
@@ -640,6 +660,10 @@ class DatasetConfig:
             else:
                 tqdm.tqdm.write("Could not load pre-dumped data, falling back to original data...")
 
+        if self.from_moabb:
+            print("Creating dataset using MOABB...")
+            mapping = self.from_moabb.get_pseudo_mapping(exclusion_cb=self.is_excluded)
+            print("Converting MOABB format to DN3")
         if mapping is None:
             return self.auto_construct_dataset(self.auto_mapping(), **dsargs)
 
