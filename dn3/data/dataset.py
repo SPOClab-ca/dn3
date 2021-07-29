@@ -358,7 +358,9 @@ class EpochTorchRecording(_Recording):
         epochs
         session_id
         person_id
-        force_label
+        force_label : bool, Optional
+                      Whether to force the labels provided by the epoch instance. By default (False), will convert
+                      output label (for N classes) into codes 0 -> N-1.
         cached
         ch_ind_picks
         event_mapping : dict, Optional
@@ -371,12 +373,14 @@ class EpochTorchRecording(_Recording):
         self.epochs = epochs
         # TODO scrap this cache option, it seems utterly redundant now
         self._cache = [None for _ in range(len(epochs.events))] if cached else None
-        self.force_label = force_label if force_label is None else torch.tensor(force_label)
         if event_mapping is None:
             # mne parses this for us
             event_mapping = epochs.event_id
-        reverse_mapping = {v: k for k, v in event_mapping.items()}
-        self.epoch_codes_to_class_labels = {v: i for i, v in enumerate(sorted(reverse_mapping.keys()))}
+        if force_label:
+            self.epoch_codes_to_class_labels = event_mapping
+        else:
+            reverse_mapping = {v: k for k, v in event_mapping.items()}
+            self.epoch_codes_to_class_labels = {v: i for i, v in enumerate(sorted(reverse_mapping.keys()))}
         skip_epochs = list() if skip_epochs is None else skip_epochs
         self._skip_map = [i for i in range(len(self.epochs.events)) if i not in skip_epochs]
         self._skip_map = dict(zip(range(len(self._skip_map)), self._skip_map))
@@ -399,8 +403,7 @@ class EpochTorchRecording(_Recording):
         else:
             x = self._cache[index]
 
-        y = torch.tensor(self.epoch_codes_to_class_labels[ep.events[0, -1]]).squeeze().long() if \
-            self.force_label is None else self.force_label
+        y = torch.tensor(self.epoch_codes_to_class_labels[ep.events[0, -1]]).squeeze().long()
 
         return self._execute_transforms(x, y)
 
@@ -421,7 +424,7 @@ class EpochTorchRecording(_Recording):
         mapping : dict
                   Keys are the class labels used by this object, values are the original event signifier.
         """
-        return self.event_labels_to_epoch_codes
+        return self.epoch_codes_to_class_labels
 
     def get_targets(self):
         return np.apply_along_axis(lambda x: self.epoch_codes_to_class_labels[x[0]], 1,
@@ -527,6 +530,12 @@ class Thinker(DN3ataset, ConcatDataset):
             self.sessions[sessions.session_id] = sessions
 
         self._reset_dataset()
+
+    def pop_session(self, session_id):
+        assert session_id in self.sessions.keys()
+        sess = self.sessions.pop(session_id)
+        self._reset_dataset()
+        return sess
 
     def __getitem__(self, item, return_id=False):
         x = list(ConcatDataset.__getitem__(self, item))
@@ -814,6 +823,12 @@ class Dataset(DN3ataset, ConcatDataset):
         else:
             self.thinkers[thinker.person_id] = thinker
         self._reset_dataset()
+
+    def pop_thinker(self, person_id):
+        assert person_id in self.get_thinkers()
+        thinker = self.thinkers.pop(person_id)
+        self._reset_dataset()
+        return thinker
 
     def __getitem__(self, item):
         person_id = bisect.bisect_right(self.cumulative_sizes, item)

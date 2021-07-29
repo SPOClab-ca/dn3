@@ -236,6 +236,10 @@ events *(list, map/dict)*
   If the reasoning for the above is not clear, not to worry. Just know you can't assume that annotated event 1 is label
   1. Instead use :meth:`EpochTorchRecording.get_mapping` to resolve labels to the original annotations or event codes.
 
+force_label *(bool)*
+  If set to `True`, will force the original epoch code (created using `events` above, or as determined by default
+  values) to be returned by produced datasets. Otherwise, for N classes, will map them to labels 0 -> N-1.
+
 annotation_format *(str)*
   In some cases, annotations may be provided as *separate* (commonly edf) files. This string should specify how to match
   the annotation file, optionally using the subject and session ids. This uses standard unix-style pattern matching,

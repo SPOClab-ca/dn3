@@ -254,11 +254,13 @@ class TemporalCrop(InstanceTransform):
         possible_starts = full_length - self._new_length
         assert possible_starts >= 0
         if self.start_offset is None:
-            start_offset = np.random.choice(possible_starts)
-        else:
+            start_offset = np.random.choice(possible_starts) if possible_starts > 0 else 0
+        elif isinstance(self.start_offset, list):
             start_offset = self.start_offset + [0 for _ in range(len(self.start_offset), possible_starts)]
             start_offset = np.random.choice(possible_starts, p=start_offset)
-        return start_offset
+        else:
+            start_offset = self.start_offset
+        return int(start_offset)
 
     def __call__(self, x):
         start_offset = self._get_start_offset(x.shape[-1])
@@ -271,12 +273,12 @@ class TemporalCrop(InstanceTransform):
 class CropAndResample(TemporalInterpolation):
 
     def __init__(self, desired_sequence_length, stdev, truncate=None, mode='nearest', new_sfreq=None,
-                 crop_side='right'):
+                 crop_side='both'):
         super().__init__(desired_sequence_length, mode=mode, new_sfreq=new_sfreq)
         self.stdev = stdev
         self.truncate = float("inf") if truncate is None else truncate
-        if crop_side not in ['right', 'left']:
-            raise ValueError("The crop-side should either be 'left' or 'right'")
+        if crop_side not in ['right', 'left', 'both']:
+            raise ValueError("The crop-side should either be 'left', 'right', or 'both'")
         self.crop_side = crop_side
 
     @staticmethod
@@ -292,6 +294,7 @@ class CropAndResample(TemporalInterpolation):
     def __call__(self, x):
         max_diff = min(x.shape[-1] - self._new_sequence_length, self.truncate)
         assert max_diff > 0
+        crop = np.random.choice(['right', 'left']) if self.crop_side == 'both' else self.crop_side
         if self.crop_side == 'right':
             offset = self.trunc_norm(self._new_sequence_length, self.stdev, max_diff)
             return super(CropAndResample, self).__call__(x[:, :offset])

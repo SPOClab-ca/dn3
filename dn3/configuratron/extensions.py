@@ -4,7 +4,8 @@ from dn3.utils import make_epochs_from_raw, DN3ConfigException
 
 SUPPORTED_DATASETS = {
     'BNCI2014001': mbd.BNCI2014001,
-    'PhysionetMI': mbd.PhysionetMI
+    'PhysionetMI': mbd.PhysionetMI,
+    'Cho2017': mbd.Cho2017
 }
 
 
@@ -21,12 +22,12 @@ class MoabbDataset:
 
     def _get_ds_data(self):
         if self.data_dict is None:
-            self.ds.download(path=self.path)
+            self.ds.download(path=str(self.path))
             self.data_dict = self.ds.get_data()
 
     def get_pseudo_mapping(self, exclusion_cb):
         self._get_ds_data()
-        self.run_map = {th: dict() for th in self.data_dict.keys()}
+        # self.run_map = {th: dict() for th in self.data_dict.keys()}
         # DN3 collapses sessions and runs
         mapping = dict()
 

@@ -3,6 +3,9 @@ from abc import ABCMeta
 import math
 
 from copy import deepcopy
+
+import numpy as np
+
 from ..data.dataset import DN3ataset
 from .layers import *
 
@@ -82,7 +85,12 @@ class Classifier(DN3BaseModel):
         model: Classifier
                A new `Classifier` ready to classifiy data from `dataset`
         """
-        targets = dataset.info.targets if dataset.info is not None and isinstance(dataset.info.targets, int) else 2
+        if hasattr(dataset, 'get_targets'):
+            targets = len(np.unique(dataset.get_targets()))
+        elif dataset.info is not None and isinstance(dataset.info.targets, int):
+            targets = dataset.info.targets
+        else:
+            targets = 2
         modelargs.setdefault('targets', targets)
         print("Creating {} using: {} channels x {} samples at {}Hz | {} targets".format(cls.__name__,
                                                                                         len(dataset.channels),

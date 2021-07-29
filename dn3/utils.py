@@ -81,7 +81,7 @@ def make_epochs_from_raw(raw: mne.io.Raw, tmin, tlen, event_ids=None, baseline=N
             events = mne.events_from_annotations(raw, event_id=event_ids, chunk_duration=chunk_duration)[0]
         else:
             events = mne.find_events(raw)
-            events = events[[i for i in range(len(events)) if events[i, -1] in event_ids.values()], :]
+            events = events[[i for i in range(len(events)) if events[i, -1] in event_ids.keys()], :]
     except ValueError as e:
         raise DN3ConfigException(*e.args)
 

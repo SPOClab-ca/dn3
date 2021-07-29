@@ -198,6 +198,7 @@ class DatasetConfig:
             elif isinstance(self.events, list):
                 self.events = dict(zip(self.events, range(len(self.events))))
             self.events = OrderedDict(self.events)
+        self.force_label = get_pop('force_label', False)
         self.chunk_duration = get_pop('chunk_duration')
         self.rename_channels = get_pop('rename_channels', dict())
         if not isinstance(self.rename_channels, dict):
@@ -278,7 +279,7 @@ class DatasetConfig:
         # Extensions
         if self.from_moabb is not None:
             try:
-                self.from_moabb = MoabbDataset(self.from_moabb.pop('name'), self.toplevel, **self.from_moabb)
+                self.from_moabb = MoabbDataset(self.from_moabb.pop('name'), self.toplevel.resolve(), **self.from_moabb)
             except KeyError:
                 raise DN3ConfigException("MOABB configuration is incorrect. Make sure to use 'name' under MOABB to "
                                          "specify a compatible dataset.")
@@ -563,9 +564,11 @@ class DatasetConfig:
             epochs = make_epochs_from_raw(raw, self.tmin, tlen, event_ids=self.events, baseline=self.baseline,
                                           decim=self.decimate, filter_bp=self.bandpass, drop_bad=self.drop_bad,
                                           use_annotations=use_annotations, chunk_duration=self.chunk_duration)
+            event_map = {v:v for v in self.events.values()} if use_annotations else self.events
 
             self._unique_events = self._unique_events.union(set(np.unique(epochs.events[:, -1])))
-            recording = EpochTorchRecording(epochs, ch_ind_picks=picks, event_mapping=self.events,
+            recording = EpochTorchRecording(epochs, ch_ind_picks=picks, event_mapping=event_map,
+                                            force_label=self.force_label,
                                             skip_epochs=skip_inds_from_bad_spans(epochs, bad_spans))
 
         if len(recording) == 0:

@@ -64,8 +64,10 @@ datasets:
     tlen: 3
     name: "MMIDB"
     events:
-      - left_hand
-      - right_hand
+      left_hand: 0
+      right_hand: 1
+      rest: 2
+      feet: 2
     picks:
       - eeg
     exclude_people:

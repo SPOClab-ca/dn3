@@ -1,5 +1,7 @@
 import unittest
 import os
+
+import numpy as np
 import yaml
 import json
 
@@ -159,7 +161,8 @@ class TestRealDatasetConfiguratron(unittest.TestCase):
 
     def test_UseMoabb(self):
         dataset = self.from_moabb.auto_construct_dataset()
-        self._check_fully_specified_requirements(dataset)
+        self.assertEqual(len(np.unique(dataset.get_targets())), 3)
+        #self._check_fully_specified_requirements(dataset)
 
     def test_SessionCallbacks(self):
         self._sess_count = 0
