@@ -273,9 +273,10 @@ class TemporalCrop(InstanceTransform):
 class CropAndResample(TemporalInterpolation):
 
     def __init__(self, desired_sequence_length, stdev, truncate=None, mode='nearest', new_sfreq=None,
-                 crop_side='both'):
+                 crop_side='both', allow_uncroppable=False):
         super().__init__(desired_sequence_length, mode=mode, new_sfreq=new_sfreq)
         self.stdev = stdev
+        self.allow_uncrop = allow_uncroppable
         self.truncate = float("inf") if truncate is None else truncate
         if crop_side not in ['right', 'left', 'both']:
             raise ValueError("The crop-side should either be 'left', 'right', or 'both'")
@@ -293,6 +294,8 @@ class CropAndResample(TemporalInterpolation):
 
     def __call__(self, x):
         max_diff = min(x.shape[-1] - self._new_sequence_length, self.truncate)
+        if self.allow_uncrop and max_diff == 0:
+            return x
         assert max_diff > 0
         crop = np.random.choice(['right', 'left']) if self.crop_side == 'both' else self.crop_side
         if self.crop_side == 'right':
