@@ -17,6 +17,7 @@ from dn3.transforms.instance import MappingDeep1010, TemporalInterpolation
 from dn3.transforms.channels import stringify_channel_mapping
 from dn3.configuratron.extensions import MoabbDataset
 
+from moabb.datasets.download import get_dataset_path
 
 _SUPPORTED_EXTENSIONS = {
     '.edf': loader.read_raw_edf,
@@ -250,7 +251,8 @@ class DatasetConfig:
                 if self.from_moabb is None:
                     raise KeyError()
                 else:
-                    self.toplevel = '~/mne_data'
+                    path = get_dataset_path("EEGBCI",None)
+                    self.toplevel = path
             self.toplevel = Path(self.toplevel).expanduser()
             self.tlen = config.pop('tlen') if self._samples is None else None
         except KeyError as e:
