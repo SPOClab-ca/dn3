@@ -366,7 +366,7 @@ class DatasetConfig:
         if self.filename_format is None:
             person = f.parent.name
         else:
-            person = search(self.filename_format, f.name)
+            person = search(self.filename_format, str(f))
             if person is None:
                 raise DN3ConfigException("Could not find person in {} using {}.".format(f.name, self.filename_format))
             person = person['subject']
@@ -374,7 +374,7 @@ class DatasetConfig:
 
     def _get_session_name(self, f: Path):
         if self.filename_format is not None and fnmatch(self.filename_format, "*{session*}*"):
-            sess_name = search(self.filename_format, f.name)['session']
+            sess_name = search(self.filename_format, str(f))['session']
         else:
             sess_name = f.name
         return sess_name
@@ -615,20 +615,47 @@ class DatasetConfig:
     def _construct_thinker_from_config(self, thinker: list, thinker_id):
         sessions = {self._get_session_name(Path(s)): s for s in thinker}
         if self._custom_thinker_loader is not None:
-            return self._custom_thinker_loader(sessions, thinker_id)
-        sessions = dict()
-        for sess in thinker:
-            sess = Path(sess)
-            sess_name = self._get_session_name(sess)
-            try:
-                new_session = self._construct_session_from_config(sess, sess_name, thinker_id)
-                after_cb = None if self._session_callback is None else self._session_callback(new_session)
-                sessions[sess_name] = new_session if after_cb is None else after_cb
-            except DN3ConfigException as e:
-                tqdm.tqdm.write("Skipping {}. Exception: {}.".format(sess_name, e.args))
-        if len(sessions) == 0:
-            raise DN3ConfigException
-        return Thinker(sessions)
+            thinker = self._custom_thinker_loader(sessions, thinker_id)
+        else:
+            sessions = dict()
+            for sess in thinker:
+                sess = Path(sess)
+                sess_name = self._get_session_name(sess)
+                try:
+                    new_session = self._construct_session_from_config(sess, sess_name, thinker_id)
+                    after_cb = None if self._session_callback is None else self._session_callback(new_session)
+                    sessions[sess_name] = new_session if after_cb is None else after_cb
+                except DN3ConfigException as e:
+                    tqdm.tqdm.write("Skipping {}. Exception: {}.".format(sess_name, e.args))
+            if len(sessions) == 0:
+                raise DN3ConfigException
+            thinker = Thinker(sessions)
+
+        if self.deep1010 is not None:
+            # Quick check for if Deep1010 was already added to sessions
+            skip = False
+            for s in thinker.sessions.values():
+                if skip:
+                    break
+                for x in s._transforms:
+                    if isinstance(x, MappingDeep1010):
+                        skip = True
+                        break
+            if not skip:
+                # FIXME dataset not fully formed, but we can hack together something for now
+                og_channels = list(thinker.channels[:, 0])
+                _dum = _DumbNamespace(dict(channels=thinker.channels, info=dict(data_max=self.data_max,
+                                                                                            data_min=self.data_min)))
+                xform = MappingDeep1010(_dum, **self.deep1010)
+                thinker.add_transform(xform)
+                self._add_deep1010(og_channels, xform.mapping.numpy(), [])
+
+        if thinker.sfreq != self._sfreq:
+            new_sequence_len = int(thinker.sequence_length * self._sfreq / thinker.sfreq) if self._samples is None \
+                else self._samples
+            thinker.add_transform(TemporalInterpolation(new_sequence_len, new_sfreq=self._sfreq))
+
+        return thinker
 
     def auto_construct_dataset(self, mapping=None, **dsargs):
         """

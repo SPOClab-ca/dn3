@@ -1,6 +1,7 @@
 import re
 from sys import gettrace
 
+from dn3.trainable.utils import _make_mask, _make_span_from_seeds
 from dn3.data.dataset import DN3ataset
 from dn3.utils import LabelSmoothedCrossEntropyLoss
 from dn3.trainable.models import Classifier
@@ -424,7 +425,7 @@ class BaseProcess(object):
         return DataLoader(dataset, **self._dataloader_args(dataset, training, **loader_kwargs))
 
     def fit(self, training_dataset, epochs=1, validation_dataset=None, step_callback=None,
-            resume_epoch=None, resume_iteration=None, log_callback=None,
+            resume_epoch=None, resume_iteration=None, log_callback=None, validation_callback=None,
             epoch_callback=None, batch_size=8, warmup_frac=0.2, retain_best='loss',
             validation_interval=None, train_log_interval=None, **loader_kwargs):
         """
@@ -449,6 +450,11 @@ class BaseProcess(object):
                         Function to run after every training step that has signature: fn(train_metrics) -> None
         log_callback : callable
                        Function to run after every log interval that has signature: fn(train_metrics) -> None
+        validation_callback : callable
+                        Function to run after every time the validation dataset is run through. This typically has the
+                        result of this and the `epoch_callback` called at the end of the epoch, but this is also called
+                        after `validation_interval` batches.
+                        This callback has the signature: fn(validation_metrics) -> None
         epoch_callback : callable
                         Function to run after every epoch that has signature: fn(validation_metrics) -> None
         batch_size : int
@@ -539,6 +545,8 @@ class BaseProcess(object):
                 self.standard_logging(_metrics, "Validation: End of Epoch {}".format(epoch))
             _metrics['epoch'] = epoch
             validation_log.append(_metrics)
+            if callable(validation_callback):
+                validation_callback(_metrics)
             return _metrics
 
         epoch_bar = tqdm.trange(resume_epoch, epochs + 1, desc="Epoch", unit='epoch', initial=resume_epoch, total=epochs)
@@ -843,13 +851,13 @@ class BendingCollegeWav2Vec(BaseProcess):
         self.predict_length = mask_span
         self._enc_downsample = encoder.downsampling_factor
         if multi_gpu:
-            encoder = nn.DataParallel(encoder)
-            context_fn = nn.DataParallel(context_fn)
+            encoder = torch.nn.DataParallel(encoder)
+            context_fn = torch.nn.DataParallel(context_fn)
         if encoder_grad_frac < 1:
             encoder.register_backward_hook(lambda module, in_grad, out_grad:
                                            tuple(encoder_grad_frac * ig for ig in in_grad))
         super(BendingCollegeWav2Vec, self).__init__(encoder=encoder, context_fn=context_fn,
-                                                    loss_fn=nn.CrossEntropyLoss(), lr=learning_rate,
+                                                    loss_fn=torch.nn.CrossEntropyLoss(), lr=learning_rate,
                                                     l2_weight_decay=l2_weight_decay,
                                                     metrics=dict(Accuracy=self._contrastive_accuracy,
                                                                  Mask_pct=self._mask_pct), **kwargs)
@@ -893,9 +901,9 @@ class BendingCollegeWav2Vec(BaseProcess):
 
         # In case the contextualizer matches exactly, need to avoid divide by zero errors
         negative_in_target = (c == negatives).all(-1)
-        targets = torch.cat([c, negatives], dim=-2)
+        targets = torch.cat([z, negatives], dim=-2)
 
-        logits = F.cosine_similarity(z, targets, dim=-1) / self.temp
+        logits = torch.nn.functional.cosine_similarity(c, targets, dim=-1) / self.temp
         if negative_in_target.any():
             logits[1:][negative_in_target] = float("-inf")
 
@@ -924,11 +932,11 @@ class BendingCollegeWav2Vec(BaseProcess):
         c = self.context_fn(z, mask)
 
         # Select negative candidates and generate labels for which are correct labels
-        negatives, negative_inds = self._generate_negatives(z)
+        negatives, negative_inds = self._generate_negatives(unmasked_z)
 
         # Prediction -> batch_size x predict_length x predict_length
         logits = self._calculate_similarity(unmasked_z, c, negatives)
-        return logits, z, mask
+        return logits, unmasked_z, mask
 
     @staticmethod
     def _mask_pct(inputs, outputs):

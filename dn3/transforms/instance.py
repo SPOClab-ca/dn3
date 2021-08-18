@@ -484,7 +484,7 @@ class UniformTransformSelection(InstanceTransform):
 
     def __init__(self, transform_list, weights=None, suppress_warnings=False):
         """
-        Uniformly selects a transform from the `transform_list` with probabilities according to `p`.
+        Uniformly selects a transform from the `transform_list` with probabilities according to `weights`.
 
         Parameters
         ----------

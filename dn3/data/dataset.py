@@ -277,7 +277,7 @@ class RawTorchRecording(_Recording):
         self._recording_len = int(tlen * self._recording_sfreq)
         self.stride = stride
         # Implement my own (rather than mne's) in-memory buffer when there are savings
-        self._stride_load = self.decimate > 1 or raw.preload
+        self._stride_load = self.decimate > 1 and raw.preload
         self.max = kwargs.get('max', None)
         self.min = kwargs.get('min', 0)
         bad_spans = list() if bad_spans is None else bad_spans
@@ -503,7 +503,7 @@ class Thinker(DN3ataset, ConcatDataset):
             raise ValueError("Multiple channel sets found. A consistent mapping like Deep1010 is necessary to proceed.")
         channels = channels.pop()
         for xform in self._transforms:
-            channels = xform.new_sfreq(channels)
+            channels = xform.new_channels(channels)
         return channels
 
     @property
@@ -514,7 +514,7 @@ class Thinker(DN3ataset, ConcatDataset):
             return unfurl(sequence_length)
         sequence_length = sequence_length.pop()
         for xform in self._transforms:
-            sequence_length = xform.new_sfreq(sequence_length)
+            sequence_length = xform.new_sequence_length(sequence_length)
         return sequence_length
 
     def __add__(self, sessions):
@@ -531,9 +531,12 @@ class Thinker(DN3ataset, ConcatDataset):
 
         self._reset_dataset()
 
-    def pop_session(self, session_id):
+    def pop_session(self, session_id, apply_thinker_transform=True):
         assert session_id in self.sessions.keys()
         sess = self.sessions.pop(session_id)
+        if apply_thinker_transform:
+            for xform in self._transforms:
+                sess.add_transform(xform)
         self._reset_dataset()
         return sess
 
@@ -824,9 +827,12 @@ class Dataset(DN3ataset, ConcatDataset):
             self.thinkers[thinker.person_id] = thinker
         self._reset_dataset()
 
-    def pop_thinker(self, person_id):
+    def pop_thinker(self, person_id, apply_ds_transforms=False):
         assert person_id in self.get_thinkers()
         thinker = self.thinkers.pop(person_id)
+        if apply_ds_transforms:
+            for xform in self._transforms:
+                thinker.add_transform(xform)
         self._reset_dataset()
         return thinker
 
