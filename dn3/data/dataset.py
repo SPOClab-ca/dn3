@@ -128,8 +128,9 @@ class DN3ataset(TorchDataset):
 
         Returns
         ---------
-        preprocessor : Preprocessor
-                       The preprocessor after application to all relevant thinkers
+        processed_data : ndarry
+                         Data that has been modified by the preprocessor, should be in the shape of [*, C, T], with C
+                         and T according with the `channels` and `sequence_length` properties respectively.
         """
         raise NotImplementedError
 
@@ -198,7 +199,7 @@ class _Recording(DN3ataset, ABC):
         self.person_id = person_id
 
     def get_all(self):
-        all_recordings = [x for x in self]
+        all_recordings = [self[i] for i in range(len(self))]
         return [torch.stack(t) for t in zip(*all_recordings)]
 
     @property
@@ -410,8 +411,10 @@ class EpochTorchRecording(_Recording):
     def __len__(self):
         return len(self._skip_map)
 
-    def preprocess(self, preprocessor: Preprocessor, apply_transform=True):
-        self.epochs = preprocessor(recording=self)
+    def preprocess(self, preprocessor: Preprocessor, apply_transform=True, **kwargs):
+        processed = preprocessor(self, **kwargs)
+        if processed is not None:
+            self._cache = [processed[i] for i in range(processed.shape[0])]
         if apply_transform:
             self.add_transform(preprocessor.get_transform())
 
@@ -543,11 +546,12 @@ class Thinker(DN3ataset, ConcatDataset):
     def __getitem__(self, item, return_id=False):
         x = list(ConcatDataset.__getitem__(self, item))
         session_idx = bisect.bisect_right(self.cumulative_sizes, item)
+        idx_offset = 2 if x[1].dtype == torch.bool else 1
         if self.return_trial_id:
             trial_id = item if session_idx == 0 else item - self.cumulative_sizes[session_idx-1]
-            x.insert(1, torch.tensor(trial_id).long())
+            x.insert(idx_offset, torch.tensor(trial_id).long())
         if self.return_session_id:
-            x.insert(1, torch.tensor(session_idx).long())
+            x.insert(idx_offset, torch.tensor(session_idx).long())
         return self._execute_transforms(*x)
 
     def __len__(self):
@@ -621,7 +625,7 @@ class Thinker(DN3ataset, ConcatDataset):
 
         return training, validating, testing
 
-    def preprocess(self, preprocessor: Preprocessor, apply_transform=True, sessions=None):
+    def preprocess(self, preprocessor: Preprocessor, apply_transform=True, sessions=None, **kwargs):
         """
         Applies a preprocessor to the dataset
 
@@ -640,13 +644,10 @@ class Thinker(DN3ataset, ConcatDataset):
         Returns
         ---------
         preprocessor : Preprocessor
-                       The preprocessor after application to all relevant thinkers
+                       The preprocessor after application to all relevant sessions
         """
-        sessions = list(self.sessions.values()) if sessions is None else sessions
-        for session in sessions:
-            session.preprocess(preprocessor)
-        if apply_transform:
-            self.add_transform(preprocessor.get_transform())
+        for sid, session in enumerate(self.sessions.values()):
+            session.preprocess(preprocessor, session_id=sid, apply_transform=apply_transform, **kwargs)
         return preprocessor
 
     def clear_transforms(self, deep_clear=False):
@@ -655,8 +656,12 @@ class Thinker(DN3ataset, ConcatDataset):
             for s in self.sessions.values():
                 s.clear_transforms()
 
-    def add_transform(self, transform):
-        self._transforms.append(transform)
+    def add_transform(self, transform, deep=False):
+        if deep:
+            for s in self.sessions.values():
+                s.add_transform(transform)
+        else:
+            self._transforms.append(transform)
 
     def get_targets(self):
         """
@@ -826,6 +831,7 @@ class Dataset(DN3ataset, ConcatDataset):
         else:
             self.thinkers[thinker.person_id] = thinker
         self._reset_dataset()
+        return self
 
     def pop_thinker(self, person_id, apply_ds_transforms=False):
         assert person_id in self.get_thinkers()
@@ -851,14 +857,16 @@ class Dataset(DN3ataset, ConcatDataset):
                     raise DN3atasetNanFound("Nan found at tensor offset {}. "
                                             "Loading data from person {} and sample {}".format(i, person, sample_idx))
 
+        # Skip deep1010 mask
+        idx_offset = 2 if x[1].dtype == torch.bool else 1
         if self.return_person_id:
-            x.insert(1, torch.tensor(person_id).long())
+            x.insert(idx_offset, torch.tensor(person_id).long())
 
         if self.return_dataset_id:
-            x.insert(1, self.dataset_id)
+            x.insert(idx_offset, self.dataset_id)
 
         if self.return_task_id:
-            x.insert(1, self.task_id)
+            x.insert(idx_offset, self.task_id)
 
         if self._safe_mode:
             try:
@@ -902,11 +910,8 @@ class Dataset(DN3ataset, ConcatDataset):
         preprocessor : Preprocessor
                        The preprocessor after application to all relevant thinkers
         """
-        thinkers = self.get_thinkers() if thinkers is None else thinkers
-        for thinker in thinkers:
-            thinker.preprocess(preprocessor)
-        if apply_transform:
-            self.add_transform(preprocessor.get_transform())
+        for thid, thinker in enumerate(self.thinkers.values()):
+            thinker.preprocess(preprocessor, thinker_id=thid, apply_transform=apply_transform)
         return preprocessor
 
     @property
@@ -1114,11 +1119,18 @@ class Dataset(DN3ataset, ConcatDataset):
 
         yield from self._generate_splits(validation_splits, test_splits)
 
-    def add_transform(self, transform, thinkers=None):
-        self._transforms.append(transform)
+    def add_transform(self, transform, deep=False):
+        if deep:
+            for t in self.thinkers.values():
+                t.add_transform(transform, deep=deep)
+        else:
+            self._transforms.append(transform)
 
-    def clear_transforms(self):
+    def clear_transforms(self, deep_clear=False):
         self._transforms = list()
+        if deep_clear:
+            for t in self.thinkers.values():
+                t.clear_transforms(deep_clear=deep_clear)
 
     def get_targets(self):
         """

@@ -9,6 +9,7 @@ from tests.dummy_data import create_dummy_dataset, retrieve_underlying_dummy_dat
 
 from dn3.transforms.instance import ZScore, MappingDeep1010, TemporalInterpolation
 
+
 def simple_zscoring(data: torch.Tensor):
     return (data - data.mean()) / data.std()
 
@@ -22,6 +23,8 @@ class TestInstanceTransforms(unittest.TestCase):
     def setUp(self) -> None:
         mne.set_log_level(False)
         self.dataset = create_dummy_dataset()
+        self.dataset.return_person_id = True
+        self.dataset.return_session_id = True
         self.transform = ZScore()
         self.dataset.add_transform(self.transform)
 

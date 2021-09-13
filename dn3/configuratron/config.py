@@ -650,7 +650,7 @@ class DatasetConfig:
                 thinker.add_transform(xform)
                 self._add_deep1010(og_channels, xform.mapping.numpy(), [])
 
-        if thinker.sfreq != self._sfreq:
+        if self._sfreq is not None and thinker.sfreq != self._sfreq:
             new_sequence_len = int(thinker.sequence_length * self._sfreq / thinker.sfreq) if self._samples is None \
                 else self._samples
             thinker.add_transform(TemporalInterpolation(new_sequence_len, new_sfreq=self._sfreq))
