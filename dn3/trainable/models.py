@@ -1,3 +1,4 @@
+import nntplib
 from abc import ABCMeta
 
 import math
@@ -376,3 +377,54 @@ class EEGNetStrided(StrideClassifier):
         x = self.init_conv(x)
         x = self.depth_conv(x)
         return self.sep_conv(x).squeeze(-2)
+
+
+class BENDRClassifier(Classifier):
+
+    def __init__(self, targets, samples, channels,
+                 return_features=True,
+                 encoder_h=256,
+                 encoder_w=(3, 2, 2, 2, 2, 2),
+                 encoder_do=0.,
+                 projection_head=False,
+                 encoder_stride=(3, 2, 2, 2, 2, 2),
+                 hidden_feedforward=3076,
+                 heads=8,
+                 context_layers=8,
+                 context_do=0.15,
+                 activation='gelu',
+                 position_encoder=25,
+                 layer_drop=0.0,
+                 mask_p_t=0.1,
+                 mask_p_c=0.004,
+                 mask_t_span=6,
+                 mask_c_span=64,
+                 start_token=-5,
+                 **kwargs):
+        self._context_features = encoder_h
+        super(BENDRClassifier, self).__init__(targets, samples, channels, return_features=return_features)
+        self.encoder = ConvEncoderBENDR(in_features=channels, encoder_h=encoder_h, enc_width=encoder_w,
+                                        dropout=encoder_do, projection_head=projection_head,
+                                        enc_downsample=encoder_stride)
+        self.contextualizer = BENDRContextualizer(encoder_h, hidden_feedforward=hidden_feedforward, heads=heads,
+                                                  layers=context_layers, dropout=context_do, activation=activation,
+                                                  position_encoder=position_encoder, layer_drop=layer_drop,
+                                                  mask_p_t=mask_p_t, mask_p_c=mask_p_c, mask_t_span=mask_t_span,
+                                                  finetuning=True)
+
+
+    @property
+    def num_features_for_classification(self):
+        return self._context_features
+
+    def easy_parallel(self):
+        self.encoder = nn.DataParallel(self.encoder)
+        self.contextualizer = nn.DataParallel(self.contextualizer)
+        self.classifier = nn.DataParallel(self.classifier)
+
+    def features_forward(self, x):
+        x = self.encoder(x)
+        x = self.contextualizer(x)
+        return x[0]
+
+

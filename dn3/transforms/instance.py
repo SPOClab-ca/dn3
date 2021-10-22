@@ -114,8 +114,15 @@ class ZScore(InstanceTransform):
     """
     Z-score normalization of trials
     """
+    def __init__(self, mean=None, std=None):
+        super(ZScore, self).__init__()
+        self.mean = mean
+        self.std = std
+    
     def __call__(self, x):
-        return (x - x.mean()) / x.std()
+        mean = x.mean() if self.mean is None else self.mean
+        std = x.std() if self.std is None else self.std
+        return (x - mean) / std
 
 
 class FixedScale(InstanceTransform):
