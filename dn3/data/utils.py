@@ -71,14 +71,16 @@ class MultiDatasetContainer(TorchDataset):
         return sum(len(inds) for inds in self.index_map)
 
 
-def get_dataset_max_and_min(dataset: Dataset):
+def get_dataset_max_and_min(dataset: Dataset, rd=0.9):
     """
     This utility function is used early on to determine the *data_max* and *data_min* parameters that are added to the
-    configuratron to properly create the Deep1010 mapping.
+    configuratron to properly create the Deep1010 mapping. Running factor tracks how much the individual max and mins
+    deviate from the max and min while searching, useful to track how large the peaks in data appear.
 
     Parameters
     ----------
     dataset: Dataset
+    rd: float
 
     Returns
     -------
@@ -86,6 +88,8 @@ def get_dataset_max_and_min(dataset: Dataset):
     """
     dmax = None
     dmin = None
+    running_dev_max = 0
+    running_dev_min = 0
 
     pbar = tqdm.tqdm(dataset)
     for data in pbar:
@@ -98,7 +102,9 @@ def get_dataset_max_and_min(dataset: Dataset):
             dmin = _min
         dmax = max(dmax, _max)
         dmin = min(dmin, _min)
-        pbar.set_postfix(dict(dmax=dmax, dmin=dmin))
+        running_dev_max = rd * running_dev_max + (1 - rd) * (dmax - _max) ** 2
+        running_dev_min = rd * running_dev_min + (1 - rd) * (dmin - _min) ** 2
+        pbar.set_postfix(dict(dmax=dmax, dmin=dmin, dev_max=running_dev_max, dev_min=running_dev_min))
 
     return dmax, dmin
 

@@ -73,7 +73,7 @@ class TestExperimentConfiguration(unittest.TestCase):
         pass
 
     def test_DatasetsRetrieved(self):
-        self.assertEqual(3, len(self.experiment_config.datasets))
+        self.assertEqual(4, len(self.experiment_config.datasets))
 
     def test_Auxiliaries(self):
         self.assertTrue(hasattr(self.experiment_config, "another_extra"))

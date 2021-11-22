@@ -13,6 +13,7 @@ datasets:
   mmidb_minimally_specified_raw:
     toplevel: ./test_dataset/physionet.org/files/eegmmidb/
     tlen: 3
+    stride: 300 # Otherwise too many trials
 
   mmidb_minimally_specified_epoch:
     toplevel: ./test_dataset/physionet.org/files/eegmmidb/
@@ -24,7 +25,7 @@ datasets:
 
   mmidb_fully_specified:
     toplevel: ./test_dataset/physionet.org/files/eegmmidb/
-    filename_format: "{subject:4}{session:3}"
+    filename_format: "{subject:.4}{session:.3}.edf"
     tmin: -0.25
     tlen: 3
     name: "MMIDB"

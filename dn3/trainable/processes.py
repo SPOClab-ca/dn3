@@ -1,6 +1,7 @@
 import re
 from sys import gettrace
 
+from dn3.trainable.utils import _make_mask, _make_span_from_seeds
 from dn3.data.dataset import DN3ataset
 from dn3.utils import LabelSmoothedCrossEntropyLoss
 from dn3.trainable.models import Classifier
@@ -424,7 +425,7 @@ class BaseProcess(object):
         return DataLoader(dataset, **self._dataloader_args(dataset, training, **loader_kwargs))
 
     def fit(self, training_dataset, epochs=1, validation_dataset=None, step_callback=None,
-            resume_epoch=None, resume_iteration=None, log_callback=None,
+            resume_epoch=None, resume_iteration=None, log_callback=None, validation_callback=None,
             epoch_callback=None, batch_size=8, warmup_frac=0.2, retain_best='loss',
             validation_interval=None, train_log_interval=None, **loader_kwargs):
         """
@@ -449,6 +450,11 @@ class BaseProcess(object):
                         Function to run after every training step that has signature: fn(train_metrics) -> None
         log_callback : callable
                        Function to run after every log interval that has signature: fn(train_metrics) -> None
+        validation_callback : callable
+                        Function to run after every time the validation dataset is run through. This typically has the
+                        result of this and the `epoch_callback` called at the end of the epoch, but this is also called
+                        after `validation_interval` batches.
+                        This callback has the signature: fn(validation_metrics) -> None
         epoch_callback : callable
                         Function to run after every epoch that has signature: fn(validation_metrics) -> None
         batch_size : int
@@ -539,6 +545,8 @@ class BaseProcess(object):
                 self.standard_logging(_metrics, "Validation: End of Epoch {}".format(epoch))
             _metrics['epoch'] = epoch
             validation_log.append(_metrics)
+            if callable(validation_callback):
+                validation_callback(_metrics)
             return _metrics
 
         epoch_bar = tqdm.trange(resume_epoch, epochs + 1, desc="Epoch", unit='epoch', initial=resume_epoch, total=epochs)
@@ -819,3 +827,186 @@ class LDAMLoss(torch.nn.Module):
 def create_ldam_loss(training_dataset):
     sample_weights, counts = get_label_balance(training_dataset)
     return LDAMLoss(counts)
+
+
+def _make_span_from_seeds(seeds, span, total=None):
+    inds = list()
+    for seed in seeds:
+        for i in range(seed, seed + span):
+            if total is not None and i >= total:
+                break
+            elif i not in inds:
+                inds.append(int(i))
+    return np.array(inds)
+
+
+class BendingCollegeWav2Vec(BaseProcess):
+    """
+    A more wav2vec 2.0 style of constrastive self-supervision, more inspired-by than exactly like it.
+    """
+    def __init__(self, encoder, context_fn, mask_rate=0.1, mask_span=6, learning_rate=0.01, temp=0.5,
+                 permuted_encodings=False, permuted_contexts=False, enc_feat_l2=0.001, multi_gpu=False,
+                 l2_weight_decay=1e-4, unmasked_negative_frac=0.25, encoder_grad_frac=1.0,
+                 num_negatives=100, **kwargs):
+        self.predict_length = mask_span
+        self._enc_downsample = encoder.downsampling_factor
+        if multi_gpu:
+            encoder = torch.nn.DataParallel(encoder)
+            context_fn = torch.nn.DataParallel(context_fn)
+        if encoder_grad_frac < 1:
+            encoder.register_backward_hook(lambda module, in_grad, out_grad:
+                                           tuple(encoder_grad_frac * ig for ig in in_grad))
+        super(BendingCollegeWav2Vec, self).__init__(encoder=encoder, context_fn=context_fn,
+                                                    loss_fn=torch.nn.CrossEntropyLoss(), lr=learning_rate,
+                                                    l2_weight_decay=l2_weight_decay,
+                                                    metrics=dict(Accuracy=self._contrastive_accuracy,
+                                                                 Mask_pct=self._mask_pct), **kwargs)
+        self.best_metric = None
+        self.mask_rate = mask_rate
+        self.mask_span = mask_span
+        self.temp = temp
+        self.permuted_encodings = permuted_encodings
+        self.permuted_contexts = permuted_contexts
+        self.beta = enc_feat_l2
+        self.start_token = getattr(context_fn, 'start_token', None)
+        self.unmasked_negative_frac = unmasked_negative_frac
+        self.num_negatives = num_negatives
+
+    def description(self, sequence_len):
+        encoded_samples = self._enc_downsample(sequence_len)
+        desc = "{} samples | mask span of {} at a rate of {} => E[masked] ~= {}".format(
+            encoded_samples, self.mask_span, self.mask_rate,
+            int(encoded_samples * self.mask_rate * self.mask_span))
+        return desc
+
+    def _generate_negatives(self, z):
+        """Generate negative samples to compare each sequence location against"""
+        batch_size, feat, full_len = z.shape
+        z_k = z.permute([0, 2, 1]).reshape(-1, feat)
+        negative_inds = torch.empty(batch_size, full_len, self.num_negatives).long()
+        ind_weights = torch.ones(full_len, full_len) - torch.eye(full_len)
+        with torch.no_grad():
+            # candidates = torch.arange(full_len).unsqueeze(-1).expand(-1, self.num_negatives).flatten()
+            for i in range(batch_size):
+                negative_inds[i] = torch.multinomial(ind_weights, self.num_negatives) + i*full_len
+            # From wav2vec 2.0 implementation, I don't understand
+            # negative_inds[negative_inds >= candidates] += 1
+
+        z_k = z_k[negative_inds.view(-1)].view(batch_size, full_len, self.num_negatives, feat)
+        return z_k, negative_inds
+
+    def _calculate_similarity(self, z, c, negatives):
+        c = c[..., 1:].permute([0, 2, 1]).unsqueeze(-2)
+        z = z.permute([0, 2, 1]).unsqueeze(-2)
+
+        # In case the contextualizer matches exactly, need to avoid divide by zero errors
+        negative_in_target = (c == negatives).all(-1)
+        targets = torch.cat([z, negatives], dim=-2)
+
+        logits = torch.nn.functional.cosine_similarity(c, targets, dim=-1) / self.temp
+        if negative_in_target.any():
+            logits[1:][negative_in_target] = float("-inf")
+
+        return logits.view(-1, logits.shape[-1])
+
+    def forward(self, *inputs):
+        z = self.encoder(inputs[0])
+
+        if self.permuted_encodings:
+            z = z.permute([1, 2, 0])
+
+        unmasked_z = z.clone()
+
+        batch_size, feat, samples = z.shape
+
+        if self._training:
+            mask = _make_mask((batch_size, samples), self.mask_rate, samples, self.mask_span)
+        else:
+            mask = torch.zeros((batch_size, samples), requires_grad=False, dtype=torch.bool)
+            half_avg_num_seeds = max(1, int(samples * self.mask_rate * 0.5))
+            if samples <= self.mask_span * half_avg_num_seeds:
+                raise ValueError("Masking the entire span, pointless.")
+            mask[:, _make_span_from_seeds((samples // half_avg_num_seeds) * np.arange(half_avg_num_seeds).astype(int),
+                                              self.mask_span)] = True
+
+        c = self.context_fn(z, mask)
+
+        # Select negative candidates and generate labels for which are correct labels
+        negatives, negative_inds = self._generate_negatives(unmasked_z)
+
+        # Prediction -> batch_size x predict_length x predict_length
+        logits = self._calculate_similarity(unmasked_z, c, negatives)
+        return logits, unmasked_z, mask, c
+
+    @staticmethod
+    def _mask_pct(inputs, outputs):
+        return outputs[2].float().mean().item()
+
+    @staticmethod
+    def _contrastive_accuracy(inputs, outputs):
+        logits = outputs[0]
+        labels = torch.zeros(logits.shape[0], device=logits.device, dtype=torch.long)
+        return StandardClassification._simple_accuracy([labels], logits)
+
+    def calculate_loss(self, inputs, outputs):
+        logits = outputs[0]
+        # The 0'th index is the correct position
+        labels = torch.zeros(logits.shape[0], device=logits.device, dtype=torch.long)
+
+        # Note that loss_fn here integrates the softmax as per the normal classification pipeline (leveraging logsumexp)
+        return self.loss_fn(logits, labels) + self.beta * outputs[1].pow(2).mean()
+
+
+class BendingCollegeClassification(BendingCollegeWav2Vec, StandardClassification):
+
+    def __init__(self, bendr_model, mask_rate=0.1, mask_span=6, learning_rate=0.01, temp=0.5,
+                 permuted_encodings=False, permuted_contexts=False, enc_feat_l2=0.001, multi_gpu=False,
+                 l2_weight_decay=1e-4, unmasked_negative_frac=0.25, encoder_grad_frac=1.0,
+                 num_negatives=100, max_reconstruction_loss_frac=0.2, **kwargs):
+        StandardClassification.__init__(self, bendr_model.classifier,
+                                        metrics={
+                                            'Accuracy': lambda i, o: self._simple_accuracy(i, o[-1]),
+                                            'Contrast-Accuracy':self._contrastive_accuracy,
+                                            'Mask-pct':self._mask_pct
+                                        },
+                                        encoder=bendr_model.encoder,
+                                        context_fn=bendr_model.contextualizer)
+        if isinstance(bendr_model.encoder, torch.nn.DataParallel):
+            encoder = bendr_model.encoder.module
+            contextualizer = bendr_model.contextualizer.module
+        else:
+            encoder = bendr_model.encoder
+            contextualizer = bendr_model.contextualizer
+
+        self.predict_length = mask_span
+        self._enc_downsample = encoder.downsampling_factor
+        if encoder_grad_frac < 1:
+            encoder.register_backward_hook(lambda module, in_grad, out_grad:
+                                                       tuple(encoder_grad_frac * ig for ig in in_grad))
+        self.best_metric = None
+        self.mask_rate = mask_rate
+        self.mask_span = mask_span
+        self.temp = temp
+        self.permuted_encodings = permuted_encodings
+        self.permuted_contexts = permuted_contexts
+        self.beta = enc_feat_l2
+        self.start_token = getattr(contextualizer, 'start_token', None)
+        self.unmasked_negative_frac = unmasked_negative_frac
+        self.num_negatives = num_negatives
+        self.r_lambda = max_reconstruction_loss_frac
+
+    def forward(self, *inputs):
+        logits, unmasked_z, mask, c = BendingCollegeWav2Vec.forward(self, *inputs)
+        prediction = self.classifier(c[..., 0])
+        return logits, unmasked_z, mask, prediction
+
+    def calculate_loss(self, inputs, outputs):
+        logits = outputs[0]
+        # The 0'th index is the correct position
+        correct_idx = torch.zeros(logits.shape[0], device=logits.device, dtype=torch.long)
+
+        mlm_loss = self.loss(logits, correct_idx) + self.beta * outputs[1].pow(2).mean()
+        cls_loss = StandardClassification.calculate_loss(self, inputs, outputs[-1])
+
+        return (1 - self.r_lambda) * cls_loss + self.r_lambda * mlm_loss
+

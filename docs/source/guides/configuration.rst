@@ -135,6 +135,19 @@ others may come up with.
 Further, that `Configuratron` entry above also allows for a variety of experiment-level options, which allows for
 common sets of channels, automatic adjustments of sampling frequencies and more. The trick is you need to keep reading.
 
+Custom Loaders (e.g. handling .mat and .csv)
+--------------------------------------------
+
+The configuratron should cover the majority of use-cases, but as such, it probably doesn't cover every case. Adding a
+function to a dataset config *before* using :any:`DatasetConfig.auto_construct_dataset()`, through:
+
+  a. :any:`DatasetConfig.add_custom_raw_loader()` or :any:`DatasetConfig.add_custom_raw_loader()` to say,
+     load a .mat file
+  b. :any:`DatasetConfig.add_custom_thinker_loader()` to say, assemble a smattering of files into a single person's data
+
+See the :any:`./dataset` guide for more information.
+
+
 Complete listing of configuratron (experiment level) options
 ============================================================
 
@@ -167,6 +180,10 @@ trial_ids *(bool)*
   Whether to return an id (*long tensor*) for which trial *within each recording* each data sequence returned by the
   constructed dataset.
 
+relative_directory *(path)*
+  This is an absolute path that, if provided, resolves any non-absolute paths used for `toplevel` paths for the
+  datasets below.
+
 Complete listing of dataset configuration fields
 ================================================
 
@@ -174,7 +191,8 @@ Required entries
 ----------------
 
 toplevel *(required, directory)*
-  Specifies the toplevel directory of the dataset.
+  Specifies the toplevel directory of the dataset. If a relative path, will be relative to the `relative_directory`
+  of the `Configuratron` entry if provided, otherwise relative to working directory. Absolute paths will be used as is.
 
 Special entries
 ---------------
@@ -385,4 +403,4 @@ pre-dumped *(path)*
   Path to a directory where an optionally already preprocessed and/or transformed dataset has been saved. This is
   listed as a *risky* option, insofar as it ignores pretty much all of the rest of the configuration.
 
-  See :any:`DN3ataset.dump_dataset()` for how to dump the dataset to such a directory.
+  See :any:`DN3ataset.to_numpy()` for how to dump the dataset to such a directory.
