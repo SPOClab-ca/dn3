@@ -18,6 +18,7 @@ from dn3.transforms.instance import MappingDeep1010, TemporalInterpolation
 from dn3.transforms.channels import stringify_channel_mapping
 from dn3.configuratron.extensions import MoabbDataset
 
+from moabb.datasets.download import get_dataset_path
 
 def _fif_raw_or_epoch(fname, preload=True):
     # See https://mne.tools/stable/generated/mne.read_epochs.html
@@ -264,7 +265,7 @@ class DatasetConfig:
                 if self.from_moabb is None:
                     raise KeyError()
                 else:
-                    self.toplevel = '~/mne_data'
+                    self.toplevel = get_dataset_path(self.from_moabb, None)
             self.toplevel = self._determine_path(self.toplevel, relative_directory)
             self.toplevel = Path(self.toplevel).expanduser()
             self.tlen = config.pop('tlen') if self._samples is None else None

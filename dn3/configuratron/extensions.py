@@ -22,7 +22,7 @@ class MoabbDataset:
 
     def _get_ds_data(self):
         if self.data_dict is None:
-            self.ds.download(path=str(self.path))
+            self.ds.download(path=str(self.path), update_path=True)
             self.data_dict = self.ds.get_data()
 
     def get_pseudo_mapping(self, exclusion_cb):
