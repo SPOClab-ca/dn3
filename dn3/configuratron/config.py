@@ -265,7 +265,8 @@ class DatasetConfig:
                 if self.from_moabb is None:
                     raise KeyError()
                 else:
-                    self.toplevel = get_dataset_path(self.from_moabb, None)
+                    # TODO resolve the use of MOABB `get_dataset_path()` confusion with "signs" vs. name of dataset
+                    self.toplevel = mne.get_config('MNE_DATA', default='~/mne_data')
             self.toplevel = self._determine_path(self.toplevel, relative_directory)
             self.toplevel = Path(self.toplevel).expanduser()
             self.tlen = config.pop('tlen') if self._samples is None else None

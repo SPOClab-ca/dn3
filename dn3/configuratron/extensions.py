@@ -2,6 +2,7 @@ import moabb.datasets as mbd
 from dn3.utils import make_epochs_from_raw, DN3ConfigException
 
 
+# These are hard-coded in MOABB, if you are having trouble with this, check if the "sign" has changed
 SUPPORTED_DATASETS = {
     'BNCI2014001': mbd.BNCI2014001,
     'PhysionetMI': mbd.PhysionetMI,
