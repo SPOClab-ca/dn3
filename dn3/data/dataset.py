@@ -546,7 +546,7 @@ class Thinker(DN3ataset, ConcatDataset):
     def __getitem__(self, item, return_id=False):
         x = list(ConcatDataset.__getitem__(self, item))
         session_idx = bisect.bisect_right(self.cumulative_sizes, item)
-        idx_offset = 2 if len(x) == 1 or x[1].dtype == torch.bool else 1
+        idx_offset = 2 if len(x) > 1 and x[1].dtype == torch.bool else 1
         if self.return_trial_id:
             trial_id = item if session_idx == 0 else item - self.cumulative_sizes[session_idx-1]
             x.insert(idx_offset, torch.tensor(trial_id).long())
@@ -858,7 +858,7 @@ class Dataset(DN3ataset, ConcatDataset):
                                             "Loading data from person {} and sample {}".format(i, person, sample_idx))
 
         # Skip deep1010 mask
-        idx_offset = 2 if x[1].dtype == torch.bool else 1
+        idx_offset = 2 if len(x) > 1 and x[1].dtype == torch.bool else 1
         if self.return_person_id:
             x.insert(idx_offset, torch.tensor(person_id).long())
 

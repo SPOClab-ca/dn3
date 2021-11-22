@@ -1,3 +1,4 @@
+import mne
 import yaml
 from yamlinclude import YamlIncludeConstructor
 import tqdm
@@ -18,10 +19,18 @@ from dn3.transforms.channels import stringify_channel_mapping
 from dn3.configuratron.extensions import MoabbDataset
 
 
+def _fif_raw_or_epoch(fname, preload=True):
+    # See https://mne.tools/stable/generated/mne.read_epochs.html
+    if str(fname).endswith('-epo.fif'):
+        return mne.read_epochs(fname, preload=preload)
+    else:
+        return loader.read_raw_fif(fname, preload=preload)
+
+
 _SUPPORTED_EXTENSIONS = {
     '.edf': loader.read_raw_edf,
     # FIXME: need to handle part fif files
-    '.fif': loader.read_raw_fif,
+    '.fif': _fif_raw_or_epoch,
 
     # TODO: add much more support, at least all of MNE-python
     '.bdf': loader.read_raw_bdf,
@@ -105,6 +114,7 @@ class ExperimentConfig:
             self.global_sfreq = None
             return_trial_ids = False
             preload = False
+            relative_directory = None
         else:
             # If not None, will be used
             self._make_deep1010 = self.experiment.get('deep1010', dict())
@@ -115,13 +125,15 @@ class ExperimentConfig:
             usable_datasets = self.experiment.get('use_only', usable_datasets)
             preload = self.experiment.get('preload', False)
             return_trial_ids = self.experiment.get('trial_ids', False)
+            relative_directory = self.experiment.get('relative_directory', None)
 
         self.datasets = dict()
         for i, name in enumerate(usable_datasets):
             if name in ds_entries.keys():
                 self.datasets[name] = DatasetConfig(name, ds_entries[name], deep1010=self._make_deep1010,
                                                     samples=self.global_samples, sfreq=self.global_sfreq,
-                                                    preload=preload, return_trial_ids=return_trial_ids)
+                                                    preload=preload, return_trial_ids=return_trial_ids,
+                                                    relative_directory=relative_directory)
             else:
                 raise DN3ConfigException("Could not find {} in datasets".format(name))
 
@@ -136,7 +148,7 @@ class DatasetConfig:
     Parses dataset entries in DN3 config
     """
     def __init__(self, name: str, config: dict, adopt_auxiliaries=True, ext_handlers=None, deep1010=None,
-                 samples=None, sfreq=None, preload=False, return_trial_ids=False):
+                 samples=None, sfreq=None, preload=False, return_trial_ids=False, relative_directory=None):
         """
         Parses dataset entries in DN3 config
 
@@ -165,6 +177,8 @@ class DatasetConfig:
                  `preload` configuratron entry.
         return_trial_ids: bool
                  Whether to construct recordings that return trial ids.
+        relative_directory: Path
+                 Path to reference *toplevel* configuration entry to (if not an absolute path)
 
         """
         self._original_config = dict(config).copy()
@@ -251,6 +265,7 @@ class DatasetConfig:
                     raise KeyError()
                 else:
                     self.toplevel = '~/mne_data'
+            self.toplevel = self._determine_path(self.toplevel, relative_directory)
             self.toplevel = Path(self.toplevel).expanduser()
             self.tlen = config.pop('tlen') if self._samples is None else None
         except KeyError as e:
@@ -297,6 +312,12 @@ class DatasetConfig:
                 return False
         return True
 
+    @staticmethod
+    def _determine_path(toplevel, relative_directory=None):
+        if relative_directory is None or str(toplevel)[0] in '/~.':
+            return toplevel
+        return str((Path(relative_directory) / toplevel).expanduser())
+
     def add_extension_handler(self, extension: str, handler):
         """
         Provide callable code to create a raw instance from sessions with certain file extensions. This is useful for
@@ -307,7 +328,7 @@ class DatasetConfig:
         extension : str
                    An extension that includes the '.', e.g. '.csv'
         handler : callable
-                  Callback with signature f(path_to_file: str) -> mne.io.Raw
+                  Callback with signature f(path_to_file: str) -> mne.io.Raw, mne.io.Epochs
 
         """
         assert callable(handler)
@@ -554,17 +575,20 @@ class DatasetConfig:
                                               bad_spans=bad_spans)
         else:
             use_annotations = self.events is not None and True in [isinstance(x, str) for x in self.events.keys()]
-            if use_annotations and self.annotation_format is not None:
-                patt = self.annotation_format.format(subject=thinker_id, session=sess_id)
-                ann = [str(f) for f in session.parent.glob(patt)]
-                if len(ann) > 0:
-                    if len(ann) > 1:
-                        print("More than one annotation found for {}. Falling back to {}".format(patt, ann[0]))
-                    raw.set_annotations(read_annotations(ann[0]))
-            epochs = make_epochs_from_raw(raw, self.tmin, tlen, event_ids=self.events, baseline=self.baseline,
-                                          decim=self.decimate, filter_bp=self.bandpass, drop_bad=self.drop_bad,
-                                          use_annotations=use_annotations, chunk_duration=self.chunk_duration)
-            event_map = {v:v for v in self.events.values()} if use_annotations else self.events
+            if not isinstance(raw, (mne.Epochs, mne.epochs.EpochsFIF)):  # Annoying other epochs type
+                if use_annotations and self.annotation_format is not None:
+                    patt = self.annotation_format.format(subject=thinker_id, session=sess_id)
+                    ann = [str(f) for f in session.parent.glob(patt)]
+                    if len(ann) > 0:
+                        if len(ann) > 1:
+                            print("More than one annotation found for {}. Falling back to {}".format(patt, ann[0]))
+                        raw.set_annotations(read_annotations(ann[0]))
+                epochs = make_epochs_from_raw(raw, self.tmin, tlen, event_ids=self.events, baseline=self.baseline,
+                                              decim=self.decimate, filter_bp=self.bandpass, drop_bad=self.drop_bad,
+                                              use_annotations=use_annotations, chunk_duration=self.chunk_duration)
+            else:
+                epochs = raw
+            event_map = {v: v for v in self.events.values()} if use_annotations else self.events
 
             self._unique_events = self._unique_events.union(set(np.unique(epochs.events[:, -1])))
             recording = EpochTorchRecording(epochs, ch_ind_picks=picks, event_mapping=event_map,

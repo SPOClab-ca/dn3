@@ -3,6 +3,28 @@ import torch
 
 from collections import Iterable
 from torch.utils.data.dataset import random_split
+from random import seed as py_seed
+from numpy.random import seed as np_seed
+from torch import manual_seed
+from torch.cuda import manual_seed_all as gpu_seed
+
+
+def init_seed(seed, hard=False):
+    """
+    Set a constant random seed to have reproducible runs
+    Parameters
+    ----------
+    seed
+    hard: bool
+         If you are having trouble reproducing runs with multiple GPUs, seeting hard to True should fix it, but it will
+         slow performance a bit. This may result in errors if you try to use inherrently non-deterministic algorithms.
+    """
+    py_seed(seed)
+    gpu_seed(seed)
+    manual_seed(seed)
+    np_seed(seed)
+    if hard:
+        torch.use_deterministic_algorithms()
 
 
 class DN3ConfigException(BaseException):

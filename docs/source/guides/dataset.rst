@@ -46,4 +46,10 @@ general* to *most specific*. Consider this example iteration over a :any:`Datase
    for i, (x, task_id, ds_id, person_id, session_id, y) in enumerate(dataset):
        awesome_stuff()
 
+Customized Loaders (e.g. dealing with .mat and .csv)
+----------------------------------------------------
 
+When trying to load auto-magically load a dataset with the configuratron (see the appropriate guide), it is not
+a wholly uncommon occurance to find yourself dealing with a file-format exclusive to your own particular use-case.
+
+For the most part, unless the world truly has no justice, the unique aspect of these

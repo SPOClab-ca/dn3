@@ -128,3 +128,4 @@ dmypy.json
 # Ignore test dataset
 tests/test_dataset/
 
+/tests/dumped-ds/

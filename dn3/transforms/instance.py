@@ -347,6 +347,10 @@ class MappingDeep1010(InstanceTransform):
             self.max_scale = dataset.info.data_max - dataset.info.data_min
         self.return_mask = return_mask
 
+    @staticmethod
+    def channel_listing():
+        return DEEP_1010_CHS_LISTING
+
     def __call__(self, x):
         if self.max_scale is not None:
             scale = 2 * (torch.clamp_max((x.max() - x.min()) / self.max_scale, 1.0) - 0.5)
