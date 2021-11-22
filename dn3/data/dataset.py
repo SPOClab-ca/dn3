@@ -3,6 +3,7 @@ import torch
 import copy
 import bisect
 import tqdm
+import re
 import numpy as np
 
 from dn3.transforms.preprocessors import Preprocessor
@@ -15,6 +16,16 @@ from collections.abc import Iterable
 from pathlib import Path
 from torch.utils.data import Dataset as TorchDataset
 from torch.utils.data import ConcatDataset, DataLoader
+
+
+def natural_sort(l):
+    """
+    Sort the given iterable in the way that humans expect.
+    Taken from: https://stackoverflow.com/questions/2669059/how-to-sort-alpha-numeric-set-in-python
+    """
+    convert = lambda text: int(text) if text.isdigit() else text
+    alphanum_key = lambda key: [ convert(c) for c in re.split('([0-9]+)', key) ]
+    return sorted(l, key = alphanum_key)
 
 
 class DN3ataset(TorchDataset):
@@ -763,7 +774,7 @@ class Dataset(DN3ataset, ConcatDataset):
             thinkers = {t.person_id: t for t in thinkers}
 
         self.thinkers = OrderedDict()
-        for t in sorted(thinkers.keys()):
+        for t in natural_sort(thinkers.keys()):
             self.__add__(thinkers[t], person_id=t, return_session_id=return_session_id, return_trial_id=return_trial_id)
         self._reset_dataset()
 

@@ -2,7 +2,8 @@ import re
 from sys import gettrace
 
 from dn3.trainable.utils import _make_mask, _make_span_from_seeds
-from dn3.data.dataset import DN3ataset
+from dn3.data.dataset import DN3ataset, Dataset
+from dn3.data.ood import MultiDomainContainer, fracture_dataset_into_thinker_domains
 from dn3.utils import LabelSmoothedCrossEntropyLoss
 from dn3.trainable.models import Classifier
 from dn3.transforms.batch import BatchTransform
@@ -19,6 +20,7 @@ from torch.optim.lr_scheduler import _LRScheduler as Scheduler
 import numpy as np
 from pandas import DataFrame
 from collections import OrderedDict
+from itertools import cycle
 from torch.utils.data import DataLoader, WeightedRandomSampler
 
 
@@ -1010,3 +1012,256 @@ class BendingCollegeClassification(BendingCollegeWav2Vec, StandardClassification
 
         return (1 - self.r_lambda) * cls_loss + self.r_lambda * mlm_loss
 
+
+class DomainAwareProcess(StandardClassification):
+
+    def __init__(self, classifier: torch.nn.Module, **kwargs):
+        super().__init__(classifier, **kwargs)
+
+    def fit(self, labeled_training, unlabeled_training_datasets=None, epochs=1, validation_dataset=None,
+            resume_epoch=None, resume_iteration=None, log_callback=None, validation_callback=None,
+            epoch_callback=None, batch_size=8, warmup_frac=0.2, retain_best='loss', step_callback=None,
+            validation_interval=None, train_log_interval=None, **loader_kwargs):
+        """
+        sklearn/keras-like convenience method to simply proceed with training across multiple epochs of the provided
+        dataset
+
+        Parameters
+        ----------
+        labeled_training: MultiDomainContainer, Dataset
+                          If this is a :any:`Dataset`, it will split into thinker domains.
+        unlabeled_training_datasets: MultiDomainContainer, DN3ataset, DataLoader
+        validation_dataset : DN3ataset, DataLoader
+        epochs : int
+                 Total number of epochs to fit
+        resume_epoch : int
+                      The starting epoch to train from. This will likely only be used to resume training at a certain
+                      point.
+        resume_iteration : int
+                          Similar to start epoch but specified in batches. This can either be used alone, or in
+                          conjunction with `start_epoch`. If used alone, the start epoch is the floor of
+                          `start_iteration` divided by batches per epoch. In other words this specifies cumulative
+                          batches if start_epoch is not specified, and relative to the current epoch otherwise.
+        step_callback : callable
+                        Function to run after every training step that has signature: fn(train_metrics) -> None
+        log_callback : callable
+                       Function to run after every log interval that has signature: fn(train_metrics) -> None
+        validation_callback : callable
+                        Function to run after every time the validation dataset is run through. This typically has the
+                        result of this and the `epoch_callback` called at the end of the epoch, but this is also called
+                        after `validation_interval` batches.
+                        This callback has the signature: fn(validation_metrics) -> None
+        epoch_callback : callable
+                        Function to run after every epoch that has signature: fn(validation_metrics) -> None
+        batch_size : int
+                     The batch_size to be used for the training and validation datasets. The minimum value for this
+                     is equal to the number of training domains, as batch_size / N_domains is drawn from each domain
+                     for each batch. This is ignored if they are provided as `DataLoader`.
+        warmup_frac : float
+                      The fraction of iterations that will be spent *increasing* the learning rate under the default
+                      1cycle policy (with cosine annealing). Value will be automatically clamped values between [0, 0.5]
+        retain_best : (str, None)
+                      **If `validation_dataset` is provided**, which model weights to retain. If 'loss' (default), will
+                      retain the model at the epoch with the lowest validation loss. If another string, will assume that
+                      is the metric to monitor for the *highest score*. If None, the final model is used.
+        validation_interval: int, None
+                             The number of batches between checking the validation dataset
+        train_log_interval: int, None
+                      The number of batches between persistent logging of training metrics, if None (default) happens
+                      at the end of every epoch.
+        loader_kwargs :
+                      Any remaining keyword arguments will be passed as such to any DataLoaders that are automatically
+                      constructed. If both training and validation datasets are provided as `DataLoaders`, this will be
+                      ignored.
+
+        Notes
+        -----
+        If the datasets above are provided as DN3atasets, automatic optimizations are performed to speed up loading.
+        These include setting the number of workers = to the number of CPUs/system threads - 1, and pinning memory for
+        rapid CUDA transfer if leveraging the GPU. Unless you are very comfortable with PyTorch, it's probably better
+        to not provide your own DataLoader, and let this be done automatically.
+
+        Returns
+        -------
+        train_log : Dataframe
+                    Metrics after each iteration of training as a pandas dataframe
+        validation_log : Dataframe
+                         Validation metrics after each epoch of training as a pandas dataframe
+        """
+        # TODO - this is due for a refactor. It is *nearly* the same code as `BaseProcess.fit()`
+        loader_kwargs.setdefault('batch_size', batch_size)
+        loader_kwargs = self._optimize_dataloader_kwargs(**loader_kwargs)
+
+        def _multi_domain_loaders(_domains):
+            if isinstance(_domains, DN3ataset):
+                _domains = fracture_dataset_into_thinker_domains(_domains)
+            _multi_kwargs = loader_kwargs.copy()
+            _multi_kwargs['batch_size'] = max(1, batch_size // len(_domains.get_domains()))
+            return [self._make_dataloader(ds, training=True, **_multi_kwargs) for ds in _domains.get_domains()]
+
+        labeled_training = _multi_domain_loaders(labeled_training)
+        unlabeled_training = None if unlabeled_training_datasets is None \
+            else _multi_domain_loaders(unlabeled_training_datasets)
+
+        num_batches = max([len(dl) for dl in labeled_training])
+
+        if resume_epoch is None:
+            if resume_iteration is None or resume_iteration < num_batches:
+                resume_epoch = 1
+            else:
+                resume_epoch = resume_iteration // num_batches
+        resume_iteration = 1 if resume_iteration is None else resume_iteration % num_batches
+
+        _clear_scheduler_after = self.scheduler is None
+        if _clear_scheduler_after:
+            last_epoch_workaround = num_batches * (resume_epoch - 1) + resume_iteration
+            last_epoch_workaround = -1 if last_epoch_workaround <= 1 else last_epoch_workaround
+            self.set_scheduler(
+                torch.optim.lr_scheduler.OneCycleLR(self.optimizer, self.lr, epochs=epochs,
+                                                    steps_per_epoch=num_batches,
+                                                    pct_start=warmup_frac,
+                                                    last_epoch=last_epoch_workaround)
+            )
+
+        validation_log = list()
+        train_log = list()
+        self.best_metric = None
+        best_model = self.save_best()
+
+        train_log_interval = num_batches if train_log_interval is None else train_log_interval
+        metrics = OrderedDict()
+
+        def update_metrics(new_metrics: dict, iterations):
+            if len(metrics) == 0:
+                return metrics.update(new_metrics)
+            else:
+                for m in new_metrics:
+                    try:
+                        metrics[m] = (metrics[m] * (iterations - 1) + new_metrics[m]) / iterations
+                    except KeyError:
+                        metrics[m] = new_metrics[m]
+
+        def print_training_metrics(epoch, iteration=None):
+            if iteration is not None:
+                self.standard_logging(metrics, "Training: Epoch {} - Iteration {}".format(epoch, iteration))
+            else:
+                self.standard_logging(metrics, "Training: End of Epoch {}".format(epoch))
+
+        def _validation(epoch, iteration=None):
+            _metrics = self.evaluate(validation_dataset, **loader_kwargs)
+            if iteration is not None:
+                self.standard_logging(_metrics, "Validation: Epoch {} - Iteration {}".format(epoch, iteration))
+            else:
+                self.standard_logging(_metrics, "Validation: End of Epoch {}".format(epoch))
+            _metrics['epoch'] = epoch
+            validation_log.append(_metrics)
+            if callable(validation_callback):
+                validation_callback(_metrics)
+            return _metrics
+
+        epoch_bar = tqdm.trange(resume_epoch, epochs + 1, desc="Epoch", unit='epoch', initial=resume_epoch, total=epochs)
+        for epoch in epoch_bar:
+            self.epoch = epoch
+            pbar = tqdm.trange(resume_iteration, num_batches + 1, desc="Iteration", unit='batches',
+                               initial=resume_iteration, total=num_batches)
+            labelled_iterator_list = [cycle(ds) for ds in labeled_training]
+            unlabeled_iterator_list = None if unlabeled_training is None else [cycle(ds) for ds in unlabeled_training]
+            for iteration in pbar:
+                labeled_input, unlabelled_input = self._get_batch(labelled_iterator_list,
+                                                                   unlabeled_iterators=unlabeled_iterator_list)
+                train_metrics = self.train_step(*labeled_input, unlabeled=unlabelled_input)
+                train_metrics['lr'] = self.optimizer.param_groups[0]['lr']
+                if 'momentum' in self.optimizer.defaults:
+                    train_metrics['momentum'] = self.optimizer.param_groups[0]['momentum']
+                update_metrics(train_metrics, iteration+1)
+                pbar.set_postfix(metrics)
+                train_metrics['epoch'] = epoch
+                train_metrics['iteration'] = iteration
+                train_log.append(train_metrics)
+                if callable(step_callback):
+                    step_callback(train_metrics)
+
+                if iteration % train_log_interval == 0 and pbar.total != iteration:
+                    print_training_metrics(epoch, iteration)
+                    train_metrics['epoch'] = epoch
+                    train_metrics['iteration'] = iteration
+                    if callable(log_callback):
+                        log_callback(metrics)
+                    metrics = OrderedDict()
+
+                if isinstance(validation_interval, int) and (iteration % validation_interval == 0)\
+                        and validation_dataset is not None:
+                    _m = _validation(epoch, iteration)
+                    best_model = self._retain_best(best_model, _m, retain_best)
+
+            # Make epoch summary
+            metrics = DataFrame(train_log)
+            metrics = metrics[metrics['epoch'] == epoch]
+            metrics = metrics.mean().to_dict()
+            metrics.pop('iteration', None)
+            print_training_metrics(epoch)
+
+            if validation_dataset is not None:
+                metrics = _validation(epoch)
+                best_model = self._retain_best(best_model, metrics, retain_best)
+
+            if callable(epoch_callback):
+                epoch_callback(metrics)
+            metrics = OrderedDict()
+            # All future epochs should not start offset in iterations
+            resume_iteration = 1
+
+            if not self.scheduler_after_batch and self.scheduler is not None:
+                tqdm.tqdm.write(f"Step {self.scheduler.get_last_lr()} {self.scheduler.last_epoch}")
+                self.scheduler.step()
+
+        if _clear_scheduler_after:
+            self.set_scheduler(None)
+        self.epoch = None
+
+        if retain_best is not None and validation_dataset is not None:
+            tqdm.tqdm.write("Loading best model...")
+            self.load_best(best_model)
+
+        return DataFrame(train_log), DataFrame(validation_log)
+
+    def _get_batch(self, labeled_iterators, unlabeled_iterators=None):
+        # Short-circuit back to original get_batch if not a list
+        if not isinstance(labeled_iterators, list):
+            return super(DomainAwareProcess, self)._get_batch(labeled_iterators)
+        labeled = [super(DomainAwareProcess, self)._get_batch(it) for it in labeled_iterators]
+        if unlabeled_iterators is None:
+            return labeled, None
+        return labeled, [super(DomainAwareProcess, self)._get_batch(it) for it in unlabeled_iterators]
+
+    def train_step(self, *labeled_batches, unlabeled=None):
+        self.train(True)
+        metrics = self.update(*labeled_batches, unlabeled=unlabeled)
+        if self.scheduler is not None and self.scheduler_after_batch:
+            self.scheduler.step()
+        return metrics
+
+
+    def update(self, *labelled_batches, unlabeled=None):
+        """
+        This is the heart of these processes being domain generalization/adaptation approaches.
+
+        Commonly, other processes use a combination of :any:`forward()` and :any:`calculate_loss()` rather than this
+        update function. Domain generalization algorithms typically need more flexibility that this.
+
+        It is recommended that :any:`forward()` is still used to calculate forward-passes for each domain if possible
+        and for :any:`calculate_loss()` to not be broken (so that it can be used as an evaluation metric -- though
+        backwards-passes will only be done within this function and need not be related to :any:`calculate_loss()`).
+
+        Parameters
+        ----------
+        labelled_batches
+        unlabeled
+
+        Returns
+        -------
+        metrics: dict
+                 A dictionary that includes at least an entry 'loss' for the loss calculated, in addition to any
+                 metrics that can be calculated. Ideally, :any:`calculate_metrics()` is called internally here.
+        """
+        raise NotImplementedError
