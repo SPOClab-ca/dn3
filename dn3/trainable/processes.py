@@ -3,7 +3,7 @@ from sys import gettrace
 
 from dn3.trainable.utils import _make_mask, _make_span_from_seeds
 from dn3.data.dataset import DN3ataset, Dataset
-from dn3.data.ood import MultiDomainContainer, fracture_dataset_into_thinker_domains
+from dn3.data.ood import MultiDataset, fracture_dataset_into_thinker_domains
 from dn3.utils import LabelSmoothedCrossEntropyLoss
 from dn3.trainable.models import Classifier
 from dn3.transforms.batch import BatchTransform
@@ -1028,9 +1028,9 @@ class DomainAwareProcess(StandardClassification):
 
         Parameters
         ----------
-        labeled_training: MultiDomainContainer, Dataset
+        labeled_training: MultiDataset, Dataset
                           If this is a :any:`Dataset`, it will split into thinker domains.
-        unlabeled_training_datasets: MultiDomainContainer, DN3ataset, DataLoader
+                          unlabeled_training_datasets: MultiDataset, DN3ataset, DataLoader
         validation_dataset : DN3ataset, DataLoader
         epochs : int
                  Total number of epochs to fit
@@ -1093,8 +1093,9 @@ class DomainAwareProcess(StandardClassification):
         loader_kwargs = self._optimize_dataloader_kwargs(**loader_kwargs)
 
         def _multi_domain_loaders(_domains):
-            if isinstance(_domains, DN3ataset):
+            if isinstance(_domains, Dataset):
                 _domains = fracture_dataset_into_thinker_domains(_domains)
+            assert hasattr(_domains, 'get_domains')
             _multi_kwargs = loader_kwargs.copy()
             _multi_kwargs['batch_size'] = max(1, batch_size // len(_domains.get_domains()))
             return [self._make_dataloader(ds, training=True, **_multi_kwargs) for ds in _domains.get_domains()]

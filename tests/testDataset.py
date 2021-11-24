@@ -2,7 +2,8 @@ import unittest
 import os
 
 from copy import deepcopy
-from dn3.data.utils import MultiDatasetContainer, SingleStatisticSpanRejection
+from dn3.data.utils import SingleStatisticSpanRejection
+from dn3.data.ood import MultiDataset, PersonIDAggregator
 from dn3.transforms.instance import ZScore, MappingDeep1010
 from tests.dummy_data import *
 
@@ -230,22 +231,13 @@ class TestDatasetUtils(unittest.TestCase):
 
     def test_MultiDatasetContainer(self):
         with self.subTest("Make container"):
-            multi = MultiDatasetContainer(self.dataset, self.dataset)
+            multi = MultiDataset([self.dataset, self.dataset])
             self.assertEqual(2 * len(self.dataset), len(multi))
-
-        with self.subTest("Oversample"):
-            multi = MultiDatasetContainer(self.dataset, ConcatDataset([self.dataset, self.dataset]), oversample=True)
-            self.assertEqual(4 * len(self.dataset), len(multi))
-
-        with self.subTest("Oversample w/ Max"):
-            multi = MultiDatasetContainer(self.dataset, ConcatDataset([self.dataset, self.dataset]), oversample=True,
-                                          max_artificial_size=int(1.5 * len(self.dataset)))
-            self.assertEqual(int(3.5 * len(self.dataset)), len(multi))
 
         with self.subTest("DS ids"):
             ds_copy = deepcopy(self.dataset)
             ds_copy.dataset_id = self.DS_ID + 1
-            multi = MultiDatasetContainer(self.dataset, ds_copy, return_dataset_ids=True)
+            multi = PersonIDAggregator([self.dataset, ds_copy], return_dataset_idx=True)
             self.assertEqual(multi[0][-1], self.DS_ID)
             self.assertEqual(multi[len(self.dataset)][-1], self.DS_ID+1)
 

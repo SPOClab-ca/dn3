@@ -98,7 +98,7 @@ class Classifier(DN3BaseModel):
                                                                                         dataset.sequence_length,
                                                                                         dataset.sfreq,
                                                                                         modelargs['targets']))
-        assert isinstance(dataset, DN3ataset)
+        assert hasattr(dataset, 'sequence_length') and hasattr(dataset, 'channels')
         return cls(samples=dataset.sequence_length, channels=len(dataset.channels), **modelargs)
 
     def __init__(self, targets, samples, channels, return_features=True):

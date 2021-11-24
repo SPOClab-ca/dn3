@@ -3,7 +3,7 @@ from dn3.transforms.channels import EEG_INDS
 from yaml import safe_dump
 
 
-class MultiDatasetContainer(TorchDataset):
+class MultiDatasetDomainContainer(TorchDataset):
 
     def __init__(self, *datasets, oversample=False, return_dataset_ids=False, max_artificial_size=None):
         """
@@ -69,6 +69,47 @@ class MultiDatasetContainer(TorchDataset):
 
     def __len__(self):
         return sum(len(inds) for inds in self.index_map)
+
+
+class ThinkerSubset(Thinker):
+
+    @staticmethod
+    def split_all_trials(session, frac=0.5, shuffled=True):
+        assert 0 < frac < 1
+        inds = np.arange(len(session))
+        if shuffled:
+            np.random.shuffle(inds)
+        return ThinkerSubset(session, inds[:int(frac * len(inds))]), \
+               ThinkerSubset(session, inds[int(frac * len(inds)):])
+
+    def __init__(self, thinker: Thinker, split_inds):
+        self.thinker = thinker
+        self.inds = dict(zip(range(len(split_inds)), split_inds))
+        self.__dict__.update({k: v for k, v in thinker.__dict__.items() if k not in
+                              ['__len__', '__getitem__', 'get_targets', '_transforms']})
+        self._transforms = list()
+
+    def __len__(self):
+        return len(self.inds)
+
+    def __getitem__(self, item):
+        return self._execute_transforms(*self.thinker[self.inds[item]])
+
+    @property
+    def sfreq(self):
+        return self.thinker.channels
+
+    @property
+    def channels(self):
+        return self.thinker.channels
+
+    @property
+    def sequence_length(self):
+        return self.thinker.sequence_length
+
+    def get_targets(self):
+        targets = self.thinker.get_targets()
+        return targets[list(self.inds.values())]
 
 
 def get_dataset_max_and_min(dataset: Dataset, rd=0.9):

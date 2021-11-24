@@ -21,10 +21,10 @@ from torch.utils.data import ConcatDataset, DataLoader
 def natural_sort(l):
     """
     Sort the given iterable in the way that humans expect.
-    Taken from: https://stackoverflow.com/questions/2669059/how-to-sort-alpha-numeric-set-in-python
+    Modified from: https://stackoverflow.com/questions/2669059/how-to-sort-alpha-numeric-set-in-python
     """
     convert = lambda text: int(text) if text.isdigit() else text
-    alphanum_key = lambda key: [ convert(c) for c in re.split('([0-9]+)', key) ]
+    alphanum_key = lambda key: [ convert(c) for c in re.split('([0-9]+)', str(key)) ]
     return sorted(l, key = alphanum_key)
 
 
@@ -998,6 +998,36 @@ class Dataset(DN3ataset, ConcatDataset):
         for x in self._transforms:
             like_me.add_transform(x)
         return like_me
+
+    def split(self, training_ids=None, validation_ids=None, testing_ids=None):
+        """
+        Split the dataset along specific lines just once (as opposed to multiple times with :any:`Dataset.loso()` or
+        :any:`Dataset.lmso()`.
+
+        Parameters
+        ----------
+        training_ids
+        validation_ids
+        testing_ids
+
+        Returns
+        -------
+        training_dataset, validation_dataset, testing_dataset: Dataset, None
+                       If no IDs specified for one of the splits, the according position will be None
+        """
+        tr = None
+        va = None
+        te = None
+        if training_ids is not None:
+            assert all(i in self.get_thinkers() for i in training_ids)
+            tr = self._make_like_me(training_ids)
+        if validation_ids is not None:
+            assert all(i in self.get_thinkers() for i in validation_ids)
+            va = self._make_like_me(validation_ids)
+        if testing_ids is not None:
+            assert all(i in self.get_thinkers() for i in testing_ids)
+            te = self._make_like_me(testing_ids)
+        return tr, va, te
 
     def _generate_splits(self, validation, testing):
         for val, test in zip(validation, testing):
