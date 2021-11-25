@@ -73,7 +73,7 @@ class TVector(Classifier):
     def num_features_for_classification(self):
         return self.hidden_size
 
-    def features_forward(self, x):
+    def features_forward(self, x, **kwargs):
         if len(x.shape) == 2:
             x = x.unsqueeze(0)
         # Ignore e.g. scale values for the dataset to avoid easy identification

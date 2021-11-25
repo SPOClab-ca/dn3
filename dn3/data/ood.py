@@ -2,7 +2,7 @@ import bisect
 from .dataset import Dataset, DN3ataset, ConcatDataset, np, same_channel_sets, torch
 
 
-class MultiDataset(ConcatDataset):
+class MultiDataset(ConcatDataset, DN3ataset):
     """
     A wrapper for DN3 datasets so that they can be concatenated, and the `get_targets()` method is not broken.
 
@@ -56,12 +56,34 @@ class PersonIDAggregator(MultiDataset):
 
     Automatically turns off return_task_id and dataset_ids are modified to be the 0 indexed id of the order that
     datasets are provided in.
+
+    Parameters
+    ----------
+    datasets: list
+              The datasets (:any:`Thinker` and :any:`Dataset`) to combine into a single aggregated dataset.
     """
-    def __init__(self, datasets, return_dataset_idx=False, oversample_by_dataset=False):
+    def __init__(self, datasets, return_dataset_idx=False):
         super(PersonIDAggregator, self).__init__(datasets)
+        self.missing_return_ids = list()
+        for d in datasets:
+            if hasattr(d, 'return_task_id'):
+                d.return_task_id = False
+            return_ids = [False] * 4 # dataset, person, sess, trial
+            if hasattr(d, 'return_dataset_id') and d.return_dataset_id:
+                return_ids[0] = True
+            if hasattr(d, 'return_person_id') and d.return_person_id:
+                return_ids[1] = True
+            if hasattr(d, 'return_session_id') and d.return_session_id:
+                return_ids[2] = True
+            if hasattr(d, 'return_trial_id') and d.return_trial_id:
+                return_ids[3] = True
+            self.missing_return_ids.append(return_ids)
+        self.missing_return_ids = np.array(self.missing_return_ids)
+        concerns = self.missing_return_ids[:, 2:].sum(axis=0)
+        if np.any(np.logical_and(concerns < len(datasets), concerns > 0)):
+            raise ValueError("All datasets do not have the same return status for session and trials.")
         self.people_offset = self.cumsum([d.get_thinkers() if hasattr(d, 'get_thinkers') else [1] for d in datasets])
         self._return_dataset_idx = return_dataset_idx
-        self.oversample_by_dataset = oversample_by_dataset
 
     def __str__(self):
         pass
@@ -82,25 +104,21 @@ class PersonIDAggregator(MultiDataset):
         else:
             sample_idx = idx - self.cumulative_sizes[dataset_idx - 1]
 
-        fetched = self.datasets[dataset_idx][sample_idx]
+        fetched = list(self.datasets[dataset_idx][sample_idx])
 
+        x = fetched[0]
+        p_id = 0
+        p_id_idx = 2 if fetched[1].dtype == torch.bool else 1
+        # Check if person Id is returned
+        if self.missing_return_ids[dataset_idx, 1]:
+            p_id = fetched[p_id_idx]
+            p_id_idx += 1
 
-
-        if len(fetched) > 1 and fetched[1].dtype == torch.bool:
-            fetched = [fetched[0], fetched[1], torch.tensor(0).long(), *fetched[2:]]
-        else:
-            fetched = [fetched[0], torch.zeros(1), *fetched[1:]]
-
-        # Skip deep1010 mask
-        if fetched[1].dtype == torch.bool:
-            x, ds_p_id = fetched[0], fetched[2]
-        else:
-            x, ds_p_id = fetched[:2]
-
-        to_return = [x, ds_p_id + bisect.bisect_right(self.people_offset, ds_p_id), *fetched[2:]]
+        p_id = torch.tensor(p_id + bisect.bisect_right(self.people_offset, p_id))
+        to_return = [x, p_id, *fetched[p_id_idx:]]
         if self._return_dataset_idx:
             to_return.insert(1, torch.tensor(dataset_idx, dtype=torch.long))
-        return to_return
+        return self._execute_transforms(*to_return)
 
 
 def fracture_dataset_into_thinker_domains(dataset: Dataset):

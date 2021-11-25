@@ -17,8 +17,8 @@ class DummyClassifier(nn.Module):
         super().__init__()
         self.classifier = nn.Linear(channels * samples, targets)
 
-    def forward(self, x):
-        return self.classifier(x.view((x.shape[0], -1)))
+    def forward(self, *x):
+        return self.classifier(x[0].view((x[0].shape[0], -1)))
 
 
 class TestSimpleClassifier(unittest.TestCase):
@@ -29,7 +29,7 @@ class TestSimpleClassifier(unittest.TestCase):
 
     def setUp(self) -> None:
         mne.set_log_level(False)
-        self.dataset = create_dummy_dataset()
+        self.dataset = create_dummy_dataset(return_person_id=True)
         self.classifier = DummyClassifier(len(self.dataset.channels), self.dataset.sequence_length, 4)
 
     def test_MakeSimpleClassifierTrainable(self):

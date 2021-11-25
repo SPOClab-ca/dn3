@@ -86,13 +86,14 @@ class Classifier(DN3BaseModel):
         model: Classifier
                A new `Classifier` ready to classifiy data from `dataset`
         """
-        if hasattr(dataset, 'get_targets'):
-            targets = len(np.unique(dataset.get_targets()))
-        elif dataset.info is not None and isinstance(dataset.info.targets, int):
-            targets = dataset.info.targets
-        else:
-            targets = 2
-        modelargs.setdefault('targets', targets)
+        if 'targets' not in modelargs:
+            if hasattr(dataset, 'get_targets'):
+                targets = len(np.unique(dataset.get_targets()))
+            elif dataset.info is not None and isinstance(dataset.info.targets, int):
+                targets = dataset.info.targets
+            else:
+                targets = 2
+            modelargs['targets'] = targets
         print("Creating {} using: {} channels x {} samples at {}Hz | {} targets".format(cls.__name__,
                                                                                         len(dataset.channels),
                                                                                         dataset.sequence_length,
@@ -111,7 +112,7 @@ class Classifier(DN3BaseModel):
         self.load_state_dict(self._init_state)
 
     def forward(self, *x):
-        features = self.features_forward(*x)
+        features = self.features_forward(x[0])
         if self.return_features:
             return self.classifier_forward(features), features
         else:

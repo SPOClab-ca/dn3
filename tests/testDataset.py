@@ -236,10 +236,9 @@ class TestDatasetUtils(unittest.TestCase):
 
         with self.subTest("DS ids"):
             ds_copy = deepcopy(self.dataset)
-            ds_copy.dataset_id = self.DS_ID + 1
             multi = PersonIDAggregator([self.dataset, ds_copy], return_dataset_idx=True)
-            self.assertEqual(multi[0][-1], self.DS_ID)
-            self.assertEqual(multi[len(self.dataset)][-1], self.DS_ID+1)
+            self.assertEqual(multi[0][1], 0)
+            self.assertEqual(multi[len(self.dataset)][1], 1)
 
     def test_ToNumpy(self):
         # Make sure it works with transforms
