@@ -6,7 +6,7 @@ import sys
 
 from torch.utils.data import DataLoader
 from dn3.trainable.processes import StandardClassification
-from dn3.trainable.models import EEGNetStrided
+from dn3.trainable.models import *
 from dn3.metrics.base import balanced_accuracy
 from tests.dummy_data import create_dummy_dataset, retrieve_underlying_dummy_data, EVENTS
 
@@ -88,6 +88,33 @@ class TestSimpleClassifier(unittest.TestCase):
         val_metrics = trainable.evaluate(self.dataset)
         self.assertIn('BAC', val_metrics)
         self.assertIn('loss', val_metrics)
+
+
+class TestIncludedModels(unittest.TestCase):
+
+    _BATCH_SIZES = [1, 2, 4, 8, 11]
+
+    def setUp(self) -> None:
+        mne.set_log_level(False)
+        self.dataset = create_dummy_dataset()
+
+    def test_TIDNet(self):
+        model = TIDNet.from_dataset(self.dataset)
+        process = StandardClassification(model)
+
+        for bs in self._BATCH_SIZES:
+            with self.subTest(batch_size=bs):
+                process.predict(self.dataset, batch_size=bs)
+                self.assertTrue(True)
+
+    def test_BENDRClassifier(self):
+        model = BENDRClassifier.from_dataset(self.dataset)
+        process = StandardClassification(model)
+
+        for bs in self._BATCH_SIZES:
+            with self.subTest(batch_size=bs):
+                process.predict(self.dataset, batch_size=bs)
+                self.assertTrue(True)
 
 
 if __name__ == '__main__':

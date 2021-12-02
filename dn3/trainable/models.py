@@ -425,6 +425,6 @@ class BENDRClassifier(Classifier):
     def features_forward(self, x):
         x = self.encoder(x)
         x = self.contextualizer(x)
-        return x[0]
+        return x[:, :, 0]
 
 
