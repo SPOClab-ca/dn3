@@ -28,16 +28,19 @@ def create_basic_data():
     return np.array([*([sinx, cosx] * 5), events])
 
 
-def create_dummy_raw():
+def create_dummy_raw(num_channels=None):
     """
     Creates a Raw instance from `create_basic_data`
     Returns:
     -------
     raw : mne.io.Raw
     """
-    data = create_basic_data()
+    num_channels = 11 if num_channels is None else num_channels
+    data = create_basic_data()[:num_channels, :]
     ch_names = DEEP_1010_CHS_LISTING[:8] + [' V-EOG L', 'V-EOG-R'] + ['STI 014']
+    ch_names = ch_names[:num_channels]
     ch_types = (['eeg'] * 8) + (['eog'] * 2) + ['stim']
+    ch_types = ch_types[:num_channels]
 
     info = mne.create_info(ch_names=ch_names, sfreq=SFREQ, ch_types=ch_types)
     raw = mne.io.RawArray(data, info)
@@ -45,8 +48,8 @@ def create_dummy_raw():
     return raw
 
 
-def create_dummy_session(epoched=True, raw=None, **kwargs):
-    raw = create_dummy_raw() if raw is None else raw
+def create_dummy_session(epoched=True, raw=None, raw_args=dict(), **kwargs):
+    raw = create_dummy_raw(**raw_args) if raw is None else raw
     if epoched:
         events = mne.find_events(raw)
         epochs = mne.Epochs(raw, events, tmin=TMIN, tmax=TLEN + TMIN - 1 / SFREQ, baseline=None)
@@ -54,16 +57,16 @@ def create_dummy_session(epoched=True, raw=None, **kwargs):
     return RawTorchRecording(raw, TLEN, **kwargs)
 
 
-def create_dummy_thinker(epoched=True, sessions_per_thinker=2, sess_args=dict(), **kwargs):
-    session = create_dummy_session(epoched=epoched, **sess_args)
+def create_dummy_thinker(epoched=True, sessions_per_thinker=2, raw_args=dict(), sess_args=dict(), **kwargs):
+    session = create_dummy_session(epoched=epoched, raw_args=raw_args, **sess_args)
     return Thinker({'sess{}'.format(i): session.clone() for i in range(1, sessions_per_thinker + 1)},
                    return_session_id=True, **kwargs)
 
 
-def create_dummy_dataset(epoched=True, sessions_per_thinker=2, num_thinkers=THINKERS_IN_DATASETS,
+def create_dummy_dataset(epoched=True, sessions_per_thinker=2, num_thinkers=THINKERS_IN_DATASETS, raw_args=dict(),
                          sess_args=dict(), thinker_args=dict(), **dataset_args):
-    thinker = create_dummy_thinker(epoched=epoched, sessions_per_thinker=sessions_per_thinker, sess_args=sess_args,
-                                   **thinker_args)
+    thinker = create_dummy_thinker(epoched=epoched, sessions_per_thinker=sessions_per_thinker, raw_args=raw_args,
+                                   sess_args=sess_args, **thinker_args)
     info = DatasetInfo('Test dataset', data_max=1.0, data_min=-1.0, targets=3)
     dataset_args.setdefault('dataset_info', info)
     return Dataset({"p{}".format(i): thinker.clone() for i in range(num_thinkers)}, **dataset_args)

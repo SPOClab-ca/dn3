@@ -313,6 +313,42 @@ class CropAndResample(TemporalInterpolation):
             return super(CropAndResample, self).__call__(x[:, offset:])
 
 
+class ChannelRemapping(InstanceTransform):
+
+    def __init__(self, mapping=None):
+        """
+        Remap channels to new locations, potentially re-scaling, combining and dropping them in the new scheme. Types
+        are preserved through this remapping.
+
+        Parameters
+        ----------
+        mapping: array
+                 An N x M matrix where N is the length of the old channel representation and M is the length of the
+                 new channel representation. If not provided, data just passes through this transform unchanged.
+        """
+        self.mapping = mapping
+
+    def __call__(self, x):
+        if self.mapping is None:
+            return x
+        return (x.transpose(1, 0) @ self.mapping).transpose(1, 0)
+
+    def new_channels(self, old_channels: np.ndarray):
+        if self.mapping is None:
+            return old_channels
+        channels = list()
+        types = list()
+        for row in range(self.mapping.shape[1]):
+            active = self.mapping[:, row].nonzero().numpy()
+            if len(active) > 0:
+                channels.append("-".join([old_channels[i.item(), 0] for i in active]))
+                types.append("-".join([old_channels[i.item(), 1] for i in active]))
+            else:
+                channels.append(None)
+                types.append(None)
+        return np.array(list(zip(channels, types)))
+
+
 class MappingDeep1010(InstanceTransform):
     """
     Maps various channel sets into the Deep10-10 scheme, and normalizes data between [-1, 1] with an additional scaling

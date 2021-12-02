@@ -313,3 +313,31 @@ def stringify_channel_mapping(original_names: list, mapping: np.ndarray):
     return result
 
 
+def make_map(in_channels, out_channels, force_mapping=False):
+    """
+    Make a mapping of the matching in_channels to the appropriate out_channels.
+
+    Parameters
+    ----------
+    in_channels: ndarray
+             An N x 2 array of channels as typically returned by a :any:`DN3ataset`
+    out_channels: ndarray
+            An M x 2 array of channels as typically returned by a :any:`DN3ataset`
+    force_mapping: bool
+                   If set to True, this will return a mapping even if subset and superset are the same (returns
+                   identity matrix). Otherwise returns None
+    Returns
+    -------
+    mapping
+    """
+    # Ignore the channel types, might be worth reconsidering this.
+    in_channels = in_channels[:, 0]
+    out_channels = out_channels[:, 0]
+    if len(out_channels) == len(in_channels) and np.all(out_channels == in_channels):
+        return None
+    mapping = torch.zeros(len(in_channels), len(out_channels))
+    _, in_ind, out_ind = np.intersect1d(in_channels, out_channels, return_indices=True)
+    mapping[in_ind, out_ind] = 1
+    return mapping
+
+

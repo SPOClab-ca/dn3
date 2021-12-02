@@ -2,12 +2,14 @@ import unittest
 
 import mne
 import torch
+import numpy as np
 
 from dn3.utils import min_max_normalize
-from dn3.transforms.channels import DEEP_1010_CHS_LISTING, stringify_channel_mapping
-from tests.dummy_data import create_dummy_dataset, retrieve_underlying_dummy_data, EVENTS, check_epoch_against_data
+from dn3.transforms.channels import DEEP_1010_CHS_LISTING, stringify_channel_mapping, make_map
+from tests.dummy_data import create_dummy_dataset, retrieve_underlying_dummy_data, EVENTS, check_epoch_against_data, \
+    THINKERS_IN_DATASETS
 
-from dn3.transforms.instance import ZScore, MappingDeep1010, TemporalInterpolation
+from dn3.transforms.instance import ZScore, MappingDeep1010, TemporalInterpolation, ChannelRemapping
 
 
 def simple_zscoring(data: torch.Tensor):
@@ -29,28 +31,28 @@ class TestInstanceTransforms(unittest.TestCase):
         self.dataset.add_transform(self.transform)
 
     def test_AddTransform(self):
-        self.assertIn(self.transform, self.dataset._transforms)
+        self.assertIn(self.transform, self.dataset.transforms)
 
     def test_ClearTransform(self):
-        self.assertIn(self.transform, self.dataset._transforms)
+        self.assertIn(self.transform, self.dataset.transforms)
         self.dataset.clear_transforms()
-        self.assertNotIn(self.transform, self.dataset._transforms)
+        self.assertNotIn(self.transform, self.dataset.transforms)
 
     def test_TransformAfterLOSO(self):
         for i, (training, validating, testing) in enumerate(self.dataset.loso()):
             with self.subTest(i=i):
-                self.assertIn(self.transform, training._transforms)
-                self.assertIn(self.transform, validating._transforms)
-                self.assertIn(self.transform, testing._transforms)
+                self.assertIn(self.transform, training.transforms)
+                self.assertIn(self.transform, validating.transforms)
+                self.assertIn(self.transform, testing.transforms)
                 train, val, test = testing.split(testing_sess_ids=['sess1'])
-                self.assertIn(self.transform, test._transforms)
+                self.assertIn(self.transform, test.transforms)
 
     def test_TransformAfterLMSO(self):
         for i, (training, validating, testing) in enumerate(self.dataset.lmso()):
             with self.subTest(i=i):
-                self.assertIn(self.transform, training._transforms)
-                self.assertIn(self.transform, validating._transforms)
-                self.assertIn(self.transform, testing._transforms)
+                self.assertIn(self.transform, training.transforms)
+                self.assertIn(self.transform, validating.transforms)
+                self.assertIn(self.transform, testing.transforms)
 
     def test_ZScoreTransform(self):
         i = 0
@@ -100,6 +102,15 @@ class TestInstanceTransforms(unittest.TestCase):
         ch_names = [ch[0] for ch in self.dataset.channels]
         transform = MappingDeep1010(self.dataset)
         stringify_channel_mapping(ch_names, transform.mapping.numpy())
+
+    def test_ChannelMapping(self):
+        chs = self.dataset.channels
+        lens = np.random.randint(1, len(chs), size=THINKERS_IN_DATASETS)
+        thinkers = self.dataset.thinkers
+        for i, th in enumerate(thinkers):
+            with self.subTest(thinker=th, length=lens[i]):
+                thinkers[th].add_transform(ChannelRemapping(make_map(chs, thinkers[th].channels[:lens[i]])))
+                self.assertTrue(np.all(chs[:lens[i]] == thinkers[th].channels))
 
 
 class TestBatchTransforms(unittest.TestCase):

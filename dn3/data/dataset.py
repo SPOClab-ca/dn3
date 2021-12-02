@@ -1,3 +1,5 @@
+import warnings
+
 import mne
 import torch
 import copy
@@ -939,11 +941,16 @@ class Dataset(DN3ataset, ConcatDataset):
     @property
     def channels(self):
         channels = [self.thinkers[t].channels for t in self.thinkers]
+        if same_channel_sets(channels):
+            channels = [channels.pop()]
+        for i, ch in enumerate(channels):
+            for xform in self._transforms:
+                channels = xform.new_channels(channels)
         if not same_channel_sets(channels):
-            raise ValueError("Multiple channel sets found. A consistent mapping like Deep1010 is necessary to proceed.")
-        channels = channels.pop()
-        for xform in self._transforms:
-            channels = xform.new_channels(channels)
+            warnings.warn(f"Multiple channel sets found {[len(c) for c in channels]}. "
+                          f"A consistent mapping like Deep1010 is necessary to proceed.")
+        else:
+            return channels[0]
         return channels
 
     @property

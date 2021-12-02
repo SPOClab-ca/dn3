@@ -389,17 +389,24 @@ class DatasetConfig:
         if self.filename_format is None:
             person = f.parent.name
         else:
-            person = search(self.filename_format, str(f))
+            person = search(self.filename_format, str(f).replace(f"{self.toplevel}/", ''))
             if person is None:
-                raise DN3ConfigException("Could not find person in {} using {}.".format(f.name, self.filename_format))
+                person = search(self.filename_format, str(f))
+                if person is None:
+                    raise DN3ConfigException("Could not find person in {} using {}.".format(f.name,
+                                                                                            self.filename_format))
             person = person['subject']
         return person
 
     def _get_session_name(self, f: Path):
-        if self.filename_format is not None and fnmatch(self.filename_format, "*{session*}*"):
-            sess_name = search(self.filename_format, str(f))['session']
-        else:
-            sess_name = f.name
+        sess_name = f.name
+        if self.filename_format is not None:
+            if fnmatch(self.filename_format, "*{session*}*"):
+                # Try without top-level, fallback to full path
+                short_f = str(f).replace(f"{self.toplevel}/", '')
+                sess_name = dict(
+                    search(self.filename_format, str(f))
+                ).get('session', search(self.filename_format, str(f))['session'])
         return sess_name
 
     def auto_mapping(self, files=None, reset_exclusions=True):
@@ -663,7 +670,7 @@ class DatasetConfig:
             for s in thinker.sessions.values():
                 if skip:
                     break
-                for x in s._transforms:
+                for x in s.transforms:
                     if isinstance(x, MappingDeep1010):
                         skip = True
                         break
