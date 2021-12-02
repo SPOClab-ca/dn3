@@ -161,7 +161,12 @@ use_only *(list)*
 
 deep1010 *(bool)*
   This will normalize and map all configuratron generated datasets using the :any:`MappingDeep1010` transform. This
-  is on by default.
+  is on by default, unless `common_channels` is set.
+
+common_channels *(bool)*
+  Channels for all sessions are selected for the maximal common subset of shared channels. This is applied to a single
+  dataset alone, see :any:`MultiDataset` and :any:`CommonChannelSet` to perform this operation across multiple datasets
+  at once.
 
 samples *(int)*
   Providing samples will enforce a global (common) length across all datasets (probably want to use this in conjunction

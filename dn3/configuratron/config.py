@@ -16,6 +16,7 @@ from dn3.data.dataset import Dataset, RawTorchRecording, EpochTorchRecording, Th
 from dn3.utils import make_epochs_from_raw, DN3ConfigException, skip_inds_from_bad_spans
 from dn3.transforms.instance import MappingDeep1010, TemporalInterpolation
 from dn3.transforms.channels import stringify_channel_mapping
+from dn3.transforms.preprocessors import CommonChannelSet
 from dn3.configuratron.extensions import MoabbDataset
 
 from moabb.datasets.download import get_dataset_path
@@ -111,14 +112,16 @@ class ExperimentConfig:
 
         if self.experiment is None:
             self._make_deep1010 = dict()
+            self._make_common_chs = False
             self.global_samples = None
             self.global_sfreq = None
             return_trial_ids = False
             preload = False
             relative_directory = None
         else:
-            # If not None, will be used
-            self._make_deep1010 = self.experiment.get('deep1010', dict())
+            self._make_common_chs = self.experiment.get('common_channels', False)
+            # deep1010 by default if not common_channels
+            self._make_deep1010 = self.experiment.get('deep1010', not self._make_common_chs)
             if isinstance(self._make_deep1010, bool):
                 self._make_deep1010 = dict() if self._make_deep1010 else None
             self.global_samples = self.experiment.get('samples', None)
@@ -134,7 +137,8 @@ class ExperimentConfig:
                 self.datasets[name] = DatasetConfig(name, ds_entries[name], deep1010=self._make_deep1010,
                                                     samples=self.global_samples, sfreq=self.global_sfreq,
                                                     preload=preload, return_trial_ids=return_trial_ids,
-                                                    relative_directory=relative_directory)
+                                                    relative_directory=relative_directory,
+                                                    reduce_to_common_chs=self._make_common_chs)
             else:
                 raise DN3ConfigException("Could not find {} in datasets".format(name))
 
@@ -149,7 +153,8 @@ class DatasetConfig:
     Parses dataset entries in DN3 config
     """
     def __init__(self, name: str, config: dict, adopt_auxiliaries=True, ext_handlers=None, deep1010=None,
-                 samples=None, sfreq=None, preload=False, return_trial_ids=False, relative_directory=None):
+                 samples=None, sfreq=None, preload=False, return_trial_ids=False, relative_directory=None,
+                 reduce_to_common_chs=False):
         """
         Parses dataset entries in DN3 config
 
@@ -168,6 +173,9 @@ class DatasetConfig:
         deep1010 : None, dict
                    If `None` (default) will not use the Deep1010 to map channels. If a dict, will add this transform
                    to each recording, with keyword arguments from the dict.
+        reduce_to_common_chs: bool
+                             Whether to, once the dataset is finished loading, determine the common subset of channels
+                             and reduce loaded channels to only these.
         samples: int, None
                  Experiment level sample length, superceded by dataset-specific configuration
         sfreq: float, None
@@ -242,6 +250,7 @@ class DatasetConfig:
         self.deep1010 = deep1010
         if self.deep1010 is not None and (self.data_min is None or self.data_max is None):
             print("Warning: Can't add scale index with dataset that is missing info.")
+        self.reduce_to_common_chs = reduce_to_common_chs
         self._different_deep1010s = list()
         self._targets = get_pop('targets', None)
         self._unique_events = set()
@@ -755,6 +764,8 @@ class DatasetConfig:
         dsargs.setdefault('dataset_id', self.dataset_id)
         dsargs.setdefault('return_trial_id', self.return_trial_ids)
         dataset = Dataset(thinkers, **dsargs)
+        if self.reduce_to_common_chs:
+            CommonChannelSet()(dataset)
         print(dataset)
         if self.deep1010 is not None:
             print("Constructed {} channel maps".format(len(self._different_deep1010s)))

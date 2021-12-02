@@ -188,14 +188,14 @@ class TestRealDatasetConfiguratron(unittest.TestCase):
 
 class TestConfiguratronOptionals(unittest.TestCase):
 
-    @classmethod
-    def setUpClass(cls) -> None:
-        mne.set_log_level(False)
-        raw = create_dummy_raw()
-        raw.save('test_dataset.raw.fif')
-
     def setUp(self) -> None:
-        pass
+        self.experiment_config = ExperimentConfig('./test_configuratron_options.yml')
+        self.dataset_config = self.experiment_config.datasets['test_ds']
+
+    def test_CommonChannels(self):
+        # self.assertTrue(self.experiment_config._make_common_chs)
+        ds = self.dataset_config.auto_construct_dataset()
+        print(ds)
 
 
 if __name__ == '__main__':
