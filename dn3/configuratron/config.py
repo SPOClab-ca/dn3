@@ -679,7 +679,7 @@ class DatasetConfig:
             for s in thinker.sessions.values():
                 if skip:
                     break
-                for x in s.transforms:
+                for x in s._transforms:
                     if isinstance(x, MappingDeep1010):
                         skip = True
                         break

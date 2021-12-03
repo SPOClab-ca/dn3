@@ -943,9 +943,9 @@ class Dataset(DN3ataset, ConcatDataset):
         channels = [self.thinkers[t].channels for t in self.thinkers]
         if same_channel_sets(channels):
             channels = [channels.pop()]
-        for i, ch in enumerate(channels):
+        for i in range(len(channels)):
             for xform in self._transforms:
-                channels = xform.new_channels(channels)
+                channels[i] = xform.new_channels(channels[i])
         if not same_channel_sets(channels):
             warnings.warn(f"Multiple channel sets found {[len(c) for c in channels]}. "
                           f"A consistent mapping like Deep1010 is necessary to proceed.")

@@ -326,6 +326,7 @@ class ChannelRemapping(InstanceTransform):
                  An N x M matrix where N is the length of the old channel representation and M is the length of the
                  new channel representation. If not provided, data just passes through this transform unchanged.
         """
+        super(ChannelRemapping, self).__init__()
         self.mapping = mapping
 
     def __call__(self, x):
