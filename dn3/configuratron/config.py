@@ -508,11 +508,12 @@ class DatasetConfig:
     @staticmethod
     def _prepare_session(raw, tlen, decimate, desired_sfreq, desired_samples, picks, exclude_channels, rename_channels,
                          hpf, lpf, notch_freq):
+        if notch_freq is not None:
+            raw.notch_filter(notch_freq)
         if hpf is not None or lpf is not None:
             raw = raw.filter(hpf, lpf)
         
-        if notch_freq is not None:
-            raw.notch_filter(notch_freq)
+        
 
         lowpass = raw.info.get('lowpass', None)
         raw_sfreq = raw.info['sfreq']
