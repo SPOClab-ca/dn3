@@ -231,7 +231,8 @@ class DatasetConfig:
         self.dumped = get_pop('pre-dumped')
         self.hpf = get_pop('hpf', None)
         self.lpf = get_pop('lpf', None)
-        self.filter_data = self.hpf is not None or self.lpf is not None
+        self.notch_freq = get_pop('notch_freq', None)
+        self.filter_data = self.hpf is not None or self.lpf is not None or self.notch_freq is not None
         if self.filter_data:
             self.preload = True
         self.stride = get_pop('stride', 1)
@@ -506,9 +507,12 @@ class DatasetConfig:
 
     @staticmethod
     def _prepare_session(raw, tlen, decimate, desired_sfreq, desired_samples, picks, exclude_channels, rename_channels,
-                         hpf, lpf):
+                         hpf, lpf, notch_freq):
         if hpf is not None or lpf is not None:
             raw = raw.filter(hpf, lpf)
+        
+        if notch_freq is not None:
+            raw.notch_filter(notch_freq)
 
         lowpass = raw.info.get('lowpass', None)
         raw_sfreq = raw.info['sfreq']
@@ -564,7 +568,7 @@ class DatasetConfig:
                 sess = Path(sess)
             r = self._load_raw(sess)
             return (sess, *self._prepare_session(r, self.tlen, self.decimate, self._sfreq, self._samples, self.picks,
-                                                self.exclude_channels, self.rename_channels, self.hpf, self.lpf))
+                                                self.exclude_channels, self.rename_channels, self.hpf, self.lpf, self.notch_freq))
         sess, raw, tlen, picks, new_sfreq = load_and_prepare(session)
 
         # Fixme - deprecate the decimate option in favour of specifying desired sfreq's
