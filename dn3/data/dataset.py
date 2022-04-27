@@ -1,3 +1,4 @@
+from typing import Optional
 import mne
 import torch
 import copy
@@ -15,6 +16,7 @@ from collections.abc import Iterable
 from pathlib import Path
 from torch.utils.data import Dataset as TorchDataset
 from torch.utils.data import ConcatDataset, DataLoader
+from torch.utils.data.dataset import Subset as TorchSubset
 
 
 class DN3ataset(TorchDataset):
@@ -181,6 +183,43 @@ class DN3ataset(TorchDataset):
 
         return loaded
 
+class DN3Subset(DN3ataset, TorchSubset):
+    
+        def __init__(self, dataset, indices):
+            super().__init__()
+            self.dataset = dataset
+            self.indices = indices
+    
+        def __getitem__(self, idx):
+            return TorchSubset.__getitem__(self, idx)
+    
+        def __len__(self):
+            return TorchSubset.__len__(self)
+        
+        @staticmethod
+        def init_from_torch_subset(subset: TorchSubset):
+            return DN3Subset(subset.dataset, subset.indices)
+    
+        @property
+        def sfreq(self):
+            return self.dataset.sfreq
+    
+        @property
+        def channels(self):
+            return self.dataset.channels
+    
+        @property
+        def sequence_length(self):
+            return self.dataset.sequence_length
+    
+        def clone(self):
+            return DN3Subset(self.dataset, self.indices)
+    
+        def preprocess(self, preprocessor: Preprocessor, apply_transform=True):
+            return self.dataset.preprocess(preprocessor, apply_transform)
+    
+        def to_numpy(self, batch_size=64, batch_transforms: list = None, num_workers=4, **dataloader_kwargs):
+            return self.dataset.to_numpy(batch_size, batch_transforms, num_workers, **dataloader_kwargs)
 
 class _Recording(DN3ataset, ABC):
     """
@@ -608,7 +647,7 @@ class Thinker(DN3ataset, ConcatDataset):
             if len(use_sessions) > 0:
                 print("Warning: sessions specified do not span all sessions. Skipping {} sessions.".format(
                     len(use_sessions)))
-                return training, validating, testing
+                return self._to_dn3_or_none(training), self._to_dn3_or_none(validating), self._to_dn3_or_none(testing)
 
         # Split up the rest if there is anything left
         if len(use_sessions) > 0:
@@ -623,7 +662,16 @@ class Thinker(DN3ataset, ConcatDataset):
 
         training = remainder if training is None else training
 
-        return training, validating, testing
+        return self._to_dn3_or_none(training), self._to_dn3_or_none(validating), self._to_dn3_or_none(testing)
+
+    def _to_dn3_or_none(self, x) -> Optional[DN3ataset]:
+        if isinstance(x, DN3ataset):
+            return x
+        elif x is None:
+            return x
+        else:
+            print("type of x is {}".format(type(x)))
+            return DN3ataset.__init__(x)
 
     def preprocess(self, preprocessor: Preprocessor, apply_transform=True, sessions=None, **kwargs):
         """
