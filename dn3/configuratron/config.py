@@ -232,7 +232,8 @@ class DatasetConfig:
         self.hpf = get_pop('hpf', None)
         self.lpf = get_pop('lpf', None)
         self.notch_freq = get_pop('notch_freq', None)
-        self.filter_data = self.hpf is not None or self.lpf is not None or self.notch_freq is not None
+        self.create_avg_ref = get_pop('create_avg_ref', False)
+        self.filter_data = self.hpf is not None or self.lpf is not None or self.notch_freq is not None or self.create_avg_ref
         if self.filter_data:
             self.preload = True
         self.stride = get_pop('stride', 1)
@@ -507,7 +508,9 @@ class DatasetConfig:
 
     @staticmethod
     def _prepare_session(raw, tlen, decimate, desired_sfreq, desired_samples, picks, exclude_channels, rename_channels,
-                         hpf, lpf, notch_freq):
+                         hpf, lpf, notch_freq, create_avg_ref):
+        if create_avg_ref:
+            raw.set_eeg_reference(ref_channels='average')
         if notch_freq is not None:
             raw.notch_filter(notch_freq)
         if hpf is not None or lpf is not None:
@@ -569,7 +572,7 @@ class DatasetConfig:
                 sess = Path(sess)
             r = self._load_raw(sess)
             return (sess, *self._prepare_session(r, self.tlen, self.decimate, self._sfreq, self._samples, self.picks,
-                                                self.exclude_channels, self.rename_channels, self.hpf, self.lpf, self.notch_freq))
+                                                self.exclude_channels, self.rename_channels, self.hpf, self.lpf, self.notch_freq, self.create_avg_ref))
         sess, raw, tlen, picks, new_sfreq = load_and_prepare(session)
 
         # Fixme - deprecate the decimate option in favour of specifying desired sfreq's
