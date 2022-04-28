@@ -182,48 +182,6 @@ class DN3ataset(TorchDataset):
                 loaded = [np.concatenate([loaded[i], batch[i]], axis=0) for i in range(len(batch))]
 
         return loaded
-
-<<<<<<< Updated upstream
-class DN3Subset(DN3ataset, TorchSubset):
-    
-        def __init__(self, dataset, indices):
-            super().__init__()
-            self.dataset = dataset
-            self.indices = indices
-    
-        def __getitem__(self, idx):
-            return TorchSubset.__getitem__(self, idx)
-    
-        def __len__(self):
-            return TorchSubset.__len__(self)
-        
-        @staticmethod
-        def init_from_torch_subset(subset: TorchSubset):
-            return DN3Subset(subset.dataset, subset.indices)
-    
-        @property
-        def sfreq(self):
-            return self.dataset.sfreq
-    
-        @property
-        def channels(self):
-            return self.dataset.channels
-    
-        @property
-        def sequence_length(self):
-            return self.dataset.sequence_length
-    
-        def clone(self):
-            return DN3Subset(self.dataset, self.indices)
-    
-        def preprocess(self, preprocessor: Preprocessor, apply_transform=True):
-            return self.dataset.preprocess(preprocessor, apply_transform)
-    
-        def to_numpy(self, batch_size=64, batch_transforms: list = None, num_workers=4, **dataloader_kwargs):
-            return self.dataset.to_numpy(batch_size, batch_transforms, num_workers, **dataloader_kwargs)
-
-=======
->>>>>>> Stashed changes
 class _Recording(DN3ataset, ABC):
     """
     Abstract base class for any supported recording
