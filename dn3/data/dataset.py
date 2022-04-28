@@ -183,6 +183,7 @@ class DN3ataset(TorchDataset):
 
         return loaded
 
+<<<<<<< Updated upstream
 class DN3Subset(DN3ataset, TorchSubset):
     
         def __init__(self, dataset, indices):
@@ -221,6 +222,8 @@ class DN3Subset(DN3ataset, TorchSubset):
         def to_numpy(self, batch_size=64, batch_transforms: list = None, num_workers=4, **dataloader_kwargs):
             return self.dataset.to_numpy(batch_size, batch_transforms, num_workers, **dataloader_kwargs)
 
+=======
+>>>>>>> Stashed changes
 class _Recording(DN3ataset, ABC):
     """
     Abstract base class for any supported recording
@@ -472,6 +475,26 @@ class EpochTorchRecording(_Recording):
         return np.apply_along_axis(lambda x: self.epoch_codes_to_class_labels[x[0]], 1,
                                    self.epochs.events[list(self._skip_map.values()), -1, np.newaxis]).squeeze()
 
+class DN3ataSubSet(DN3ataset):
+    """
+    Wrap a torch subset of a DN3ataset.
+    """
+    def __init__(self, dn3ata: DN3ataset, subset: TorchSubset):
+        DN3ataset.__init__(self)
+        self.dataset = subset.dataset
+        self.indices = subset.indices
+        if not hasattr(dn3ata, 'get_targets'):
+            raise ValueError("dn3ata must have a get_targets method")
+        self.targets = dn3ata.get_targets()[subset.indices]
+
+    def __getitem__(self, idx):
+        return TorchSubset.__getitem__(self, idx)
+
+    def __len__(self):
+        return TorchSubset.__len__(self)
+
+    def get_targets(self):
+        return self.targets
 
 class Thinker(DN3ataset, ConcatDataset):
     """
@@ -647,7 +670,7 @@ class Thinker(DN3ataset, ConcatDataset):
             if len(use_sessions) > 0:
                 print("Warning: sessions specified do not span all sessions. Skipping {} sessions.".format(
                     len(use_sessions)))
-                return self._to_dn3_or_none(training), self._to_dn3_or_none(validating), self._to_dn3_or_none(testing)
+                return self._dn3_or_none(training), self._dn3_or_none(validating), self._dn3_or_none(testing)
 
         # Split up the rest if there is anything left
         if len(use_sessions) > 0:
@@ -661,17 +684,14 @@ class Thinker(DN3ataset, ConcatDataset):
                     validating, remainder = rand_split(remainder, frac=validation_frac)
 
         training = remainder if training is None else training
+        
+        return self._dn3_or_none(training), self._dn3_or_none(validating), self._dn3_or_none(testing)
 
-        return self._to_dn3_or_none(training), self._to_dn3_or_none(validating), self._to_dn3_or_none(testing)
-
-    def _to_dn3_or_none(self, x) -> Optional[DN3ataset]:
-        if isinstance(x, DN3ataset):
-            return x
-        elif x is None:
-            return x
-        else:
-            print("type of x is {}".format(type(x)))
-            return DN3ataset.__init__(x)
+    def _dn3_or_none(self, subset: Optional[DN3ataset]) -> Optional[DN3ataset]:
+        if subset is None or type(subset) is DN3ataset:
+            return subset
+        
+        return DN3ataSubSet(self, subset)
 
     def preprocess(self, preprocessor: Preprocessor, apply_transform=True, sessions=None, **kwargs):
         """
