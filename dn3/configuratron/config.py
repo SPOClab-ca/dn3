@@ -467,7 +467,7 @@ class DatasetConfig:
         Parameters
         ----------
         custom_loader: callable
-                       A function that expects a single :any:`pathlib.Path()` instance as argument and returns an
+                       A function that expects a :any:`DatasetConfig` :any:`pathlib.Path()` instance as argument and returns an
                        instance of :any:`mne.io.Raw()`. To gracefully ignore problematic sessions, raise
                        :any:`DN3ConfigException` within.
 
@@ -495,7 +495,7 @@ class DatasetConfig:
 
     def _load_raw(self, path: Path):
         if self._custom_raw_loader is not None:
-            return self._custom_raw_loader(path)
+            return self._custom_raw_loader(self, path)
         if path.suffix in self._extension_handlers:
             return self._extension_handlers[path.suffix](str(path), preload=self.preload)
         print("Handler for file {} with extension {} not found.".format(str(path), path.suffix))
