@@ -1,3 +1,4 @@
+from typing import Optional
 import mne
 import torch
 import copy
@@ -15,6 +16,7 @@ from collections.abc import Iterable
 from pathlib import Path
 from torch.utils.data import Dataset as TorchDataset
 from torch.utils.data import ConcatDataset, DataLoader
+from torch.utils.data.dataset import Subset as TorchSubset
 
 
 class DN3ataset(TorchDataset):
@@ -180,8 +182,6 @@ class DN3ataset(TorchDataset):
                 loaded = [np.concatenate([loaded[i], batch[i]], axis=0) for i in range(len(batch))]
 
         return loaded
-
-
 class _Recording(DN3ataset, ABC):
     """
     Abstract base class for any supported recording
@@ -381,7 +381,7 @@ class EpochTorchRecording(_Recording):
             self.epoch_codes_to_class_labels = event_mapping
         else:
             reverse_mapping = {v: k for k, v in event_mapping.items()}
-            self.epoch_codes_to_class_labels = {v: i for i, v in enumerate(sorted(reverse_mapping.keys()))}
+            self.epoch_codes_to_class_labels = {v: i for i, v in enumerate(sorted(reverse_mapping.values()))}
         skip_epochs = list() if skip_epochs is None else skip_epochs
         self._skip_map = [i for i in range(len(self.epochs.events)) if i not in skip_epochs]
         self._skip_map = dict(zip(range(len(self._skip_map)), self._skip_map))
@@ -433,6 +433,26 @@ class EpochTorchRecording(_Recording):
         return np.apply_along_axis(lambda x: self.epoch_codes_to_class_labels[x[0]], 1,
                                    self.epochs.events[list(self._skip_map.values()), -1, np.newaxis]).squeeze()
 
+class DN3ataSubSet(DN3ataset):
+    """
+    Wrap a torch subset of a DN3ataset.
+    """
+    def __init__(self, dn3ata: DN3ataset, subset: TorchSubset):
+        DN3ataset.__init__(self)
+        self.dataset = subset.dataset
+        self.indices = subset.indices
+        if not hasattr(dn3ata, 'get_targets'):
+            raise ValueError("dn3ata must have a get_targets method")
+        self.targets = dn3ata.get_targets()[subset.indices]
+
+    def __getitem__(self, idx):
+        return TorchSubset.__getitem__(self, idx)
+
+    def __len__(self):
+        return TorchSubset.__len__(self)
+
+    def get_targets(self):
+        return self.targets
 
 class Thinker(DN3ataset, ConcatDataset):
     """
@@ -608,7 +628,7 @@ class Thinker(DN3ataset, ConcatDataset):
             if len(use_sessions) > 0:
                 print("Warning: sessions specified do not span all sessions. Skipping {} sessions.".format(
                     len(use_sessions)))
-                return training, validating, testing
+                return self._dn3_or_none(training), self._dn3_or_none(validating), self._dn3_or_none(testing)
 
         # Split up the rest if there is anything left
         if len(use_sessions) > 0:
@@ -622,8 +642,14 @@ class Thinker(DN3ataset, ConcatDataset):
                     validating, remainder = rand_split(remainder, frac=validation_frac)
 
         training = remainder if training is None else training
+        
+        return self._dn3_or_none(training), self._dn3_or_none(validating), self._dn3_or_none(testing)
 
-        return training, validating, testing
+    def _dn3_or_none(self, subset: Optional[DN3ataset]) -> Optional[DN3ataset]:
+        if subset is None or type(subset) is DN3ataset:
+            return subset
+        
+        return DN3ataSubSet(self, subset)
 
     def preprocess(self, preprocessor: Preprocessor, apply_transform=True, sessions=None, **kwargs):
         """

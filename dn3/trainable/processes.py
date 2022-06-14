@@ -569,7 +569,7 @@ class BaseProcess(object):
                 if callable(step_callback):
                     step_callback(train_metrics)
 
-                if iteration % train_log_interval == 0 and pbar.total != iteration:
+                if iteration % train_log_interval == 0 and pbar.total >= iteration:
                     print_training_metrics(epoch, iteration)
                     train_metrics['epoch'] = epoch
                     train_metrics['iteration'] = iteration

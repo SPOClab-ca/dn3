@@ -185,7 +185,7 @@ class Classifier(DN3BaseModel):
 
 class StrideClassifier(Classifier, metaclass=ABCMeta):
 
-    def __init__(self, targets, samples, channels, stride_width=2, return_features=False):
+    def __init__(self, targets, samples, channels, stride_width=2, return_features=False, bias_output=False):
         """
         Instead of summarizing the entire temporal dimension into a single prediction, a prediction kernel is swept over
         the final sequence representation and generates predictions at each step.
@@ -199,13 +199,15 @@ class StrideClassifier(Classifier, metaclass=ABCMeta):
         return_features
         """
         self.stride_width = stride_width
+        self.biased_output = bias_output
         super(StrideClassifier, self).__init__(targets, samples, channels, return_features=return_features)
 
     def make_new_classification_layer(self):
         self.classifier = torch.nn.Conv1d(self.num_features_for_classification, self.targets,
-                                          kernel_size=self.stride_width)
+                                          kernel_size=self.stride_width, bias=self.biased_output)
         torch.nn.init.xavier_normal_(self.classifier.weight)
-        self.classifier.bias.data.zero_()
+        if self.biased_output:
+            self.classifier.bias.data.zero_()
 
 
 class LogRegNetwork(Classifier):
@@ -425,6 +427,6 @@ class BENDRClassifier(Classifier):
     def features_forward(self, x):
         x = self.encoder(x)
         x = self.contextualizer(x)
-        return x[0]
+        return x[:, :, 0]
 
 
